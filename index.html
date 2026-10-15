@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="es-AR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Historial de neumáticos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+  <!-- ============ APP ============ -->
+  <div id="vista-app">
+    <header class="topbar">
+      <h1>Historial de neumáticos</h1>
+    </header>
+
+    <main class="wrap">
+
+      <!-- Carga de PDF -->
+      <section class="panel">
+        <div id="dropzone" class="dropzone" tabindex="0" role="button"
+             aria-label="Cargar PDF: hacé clic o arrastrá archivos">
+          <div>
+            <strong>Cargar PDF</strong>
+            <span class="muted">Hacé clic o arrastrá uno o varios reportes de cambio de neumáticos</span>
+          </div>
+          <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="chk-revisar" checked>
+          Revisar los datos antes de guardar cada PDF
+        </label>
+      </section>
+
+      <!-- Patentes -->
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Patentes</h2>
+          <input type="search" id="buscar" placeholder="Buscar patente" autocomplete="off">
+        </div>
+        <div id="patentes" class="plates" aria-live="polite"></div>
+      </section>
+
+      <!-- Historial -->
+      <section id="historial" class="panel" hidden>
+        <div class="panel-head">
+          <div class="titulo-patente">
+            <span id="hist-plate" class="plate big"></span>
+            <span id="hist-resumen" class="muted"></span>
+          </div>
+          <button id="btn-orden" class="btn ghost"></button>
+        </div>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Km</th>
+                <th class="num">Km desde el anterior</th>
+                <th>Neumático</th>
+                <th>Medida</th>
+                <th class="num">Cant.</th>
+                <th>Alin.</th>
+                <th>Bal.</th>
+                <th>Rot.</th>
+                <th>Válv.</th>
+                <th>Chofer</th>
+                <th>Zona</th>
+                <th class="obs">Observaciones</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============ MODAL: revisión de datos ============ -->
+  <dialog id="dlg-revisar" class="dlg">
+    <form id="form-revisar" method="dialog">
+      <div class="dlg-head">
+        <h2>Revisar datos</h2>
+        <span id="rev-progreso" class="muted"></span>
+      </div>
+      <p id="rev-archivo" class="muted"></p>
+      <p id="rev-aviso" class="aviso" hidden></p>
+
+      <div class="grid">
+        <label>Patente <input name="dominio" required maxlength="10"></label>
+        <label>Fecha del cambio <input name="fecha_cambio" type="date" required></label>
+        <label>Kilometraje <input name="kilometraje" type="number" min="0" inputmode="numeric"></label>
+        <label>Marca del neumático <input name="marca_neumatico"></label>
+        <label>Medida <input name="medida" placeholder="175/65/R14"></label>
+        <label>Cantidad <input name="cantidad" type="number" min="0"></label>
+        <label>Alineación <select name="alineacion"></select></label>
+        <label>Balanceo <select name="balanceo"></select></label>
+        <label>Rotación <select name="rotacion"></select></label>
+        <label>Válvulas <select name="valvulas"></select></label>
+        <label>Chofer <input name="chofer"></label>
+        <label>Zona <input name="zona"></label>
+        <label class="full">Asignación <input name="asignacion"></label>
+        <label class="full">Observaciones <textarea name="observaciones" rows="3"></textarea></label>
+      </div>
+
+      <div class="dlg-foot">
+        <button type="button" id="rev-omitir" class="btn ghost">Omitir este archivo</button>
+        <button type="submit" class="btn primary" id="rev-guardar">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- ============ MODAL: visor de PDF ============ -->
+  <dialog id="dlg-pdf" class="dlg visor">
+    <div class="dlg-head">
+      <h2 id="pdf-titulo">PDF</h2>
+      <div class="acciones">
+        <a id="pdf-abrir" class="btn ghost" target="_blank" rel="noopener">Abrir en pestaña nueva</a>
+        <a id="pdf-descargar" class="btn ghost">Descargar</a>
+        <button id="pdf-cerrar" class="btn primary" type="button">Cerrar</button>
+      </div>
+    </div>
+    <iframe id="pdf-frame" title="Vista del PDF"></iframe>
+  </dialog>
+
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
