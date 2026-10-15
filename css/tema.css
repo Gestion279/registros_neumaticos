@@ -1,0 +1,86 @@
+/* =========================================================
+   Tema: paleta verde salvia
+   Se carga DESPUÉS de styles.css y sobrescribe sus colores.
+   ========================================================= */
+:root {
+  --verde-claro: #C7D1C7;   /* bordes, separadores, fondos suaves */
+  --verde-medio: #85A98F;   /* acentos, hover, foco */
+  --verde-oscuro: #50786F;  /* barra superior, botones principales */
+  --verde-tinta: #2F4A43;   /* texto destacado sobre fondos claros */
+  --fondo: #F3F6F3;         /* fondo general */
+  --superficie: #FFFFFF;
+  --texto: #1F2A27;
+  --texto-suave: #5B6B66;
+}
+
+/* El cuadro del visor de PDF aparecía siempre abierto: un <dialog>
+   cerrado nunca debe mostrarse, aunque styles.css le dé display. */
+dialog:not([open]) { display: none !important; }
+
+body { background: var(--fondo); color: var(--texto); }
+
+/* ---------- Barra superior ---------- */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px max(16px, env(safe-area-inset-left)) 10px max(16px, env(safe-area-inset-right));
+  padding-top: max(10px, env(safe-area-inset-top));
+  background: var(--verde-oscuro);
+  color: #fff;
+}
+.topbar h1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 1.05rem;
+  color: #fff;
+}
+.topbar-logo { border-radius: 6px; background: #fff; padding: 2px; }
+.topbar-acciones { display: flex; gap: 8px; }
+
+.topbar .topbar-btn {
+  background: #fff;
+  color: var(--verde-tinta);
+  border: 1px solid #fff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.topbar .topbar-btn:hover { background: var(--verde-claro); border-color: var(--verde-claro); }
+.topbar .topbar-btn.ghost { background: transparent; color: #fff; border-color: rgba(255,255,255,.6); }
+.topbar .topbar-btn.ghost:hover { background: rgba(255,255,255,.12); }
+/* Al arrastrar un PDF sobre el botón (app.js puede agregar una clase) */
+.topbar .topbar-btn.drag,
+.topbar .topbar-btn.dragover,
+.topbar .topbar-btn.over { outline: 3px dashed var(--verde-claro); outline-offset: 3px; }
+
+/* ---------- Paneles y botones ---------- */
+.panel { background: var(--superficie); border-color: var(--verde-claro); }
+.muted { color: var(--texto-suave); }
+
+.btn.primary { background: var(--verde-oscuro); border-color: var(--verde-oscuro); color: #fff; }
+.btn.primary:hover { background: var(--verde-tinta); border-color: var(--verde-tinta); }
+.btn.ghost { border-color: var(--verde-claro); color: var(--verde-tinta); }
+.btn.ghost:hover { background: var(--fondo); border-color: var(--verde-medio); }
+
+:where(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--verde-medio);
+  outline-offset: 2px;
+}
+
+input[type="search"], .dlg input, .dlg select, .dlg textarea { border-color: var(--verde-claro); }
+input[type="search"]:focus, .dlg input:focus, .dlg select:focus, .dlg textarea:focus { border-color: var(--verde-oscuro); }
+
+/* ---------- Tabla ---------- */
+thead th { color: var(--texto-suave); border-bottom-color: var(--verde-claro); }
+tbody td { border-bottom-color: var(--verde-claro); }
+tbody tr:hover td { background: #F7F9F7; }
+
+/* ---------- Modal ---------- */
+.dlg::backdrop { background: rgba(31, 42, 39, .45); }
+
+@media (max-width: 560px) {
+  .topbar h1 { font-size: .95rem; }
+}
