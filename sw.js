@@ -1,6 +1,6 @@
 // Service worker: permite instalar la app y abrirla aunque la red falle.
 // Los datos (Supabase) nunca se guardan en caché: siempre se piden en vivo.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const CACHE = `neumaticos-${VERSION}`;
 const SHELL = [
   '/',
@@ -35,7 +35,11 @@ self.addEventListener('fetch', (e) => {
   if (req.mode === 'navigate') {
     e.respondWith(
       fetch(req)
-        .then((res) => { caches.open(CACHE).then((c) => c.put('/', res.clone())); return res; })
+        .then((res) => {
+          const copia = res.clone(); // se clona ANTES de devolverla al navegador
+          caches.open(CACHE).then((c) => c.put('/', copia));
+          return res;
+        })
         .catch(() => caches.match('/'))
     );
     return;
@@ -45,7 +49,10 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.match(req).then((cached) => {
       const red = fetch(req).then((res) => {
-        if (res.ok) caches.open(CACHE).then((c) => c.put(req, res.clone()));
+        if (res.ok) {
+          const copia = res.clone(); // se clona ANTES de devolverla al navegador
+          caches.open(CACHE).then((c) => c.put(req, copia));
+        }
         return res;
       }).catch(() => cached);
       return cached || red;
