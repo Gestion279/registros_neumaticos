@@ -21,6 +21,47 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Distribución del bloque de filtros (solo estructura; los colores vienen de styles.css) -->
+  <style>
+    .filtros-bloque{
+      background:rgba(65,111,104,.08);   /* tono del color original #416F68 */
+      border:1px solid rgba(65,111,104,.25);
+      border-radius:12px;
+      padding:14px 16px 16px;
+      margin-bottom:20px;
+    }
+    .filtros-bloque .panel-head{
+      display:flex; align-items:center; justify-content:space-between; gap:12px;
+      margin:0 0 12px;
+    }
+    .filtros-bloque .panel-head h2{ margin:0; display:flex; align-items:center; gap:8px; }
+    .filtros-fila{
+      display:grid;
+      grid-template-columns:minmax(150px,1.2fr) minmax(140px,1fr) minmax(140px,1fr) minmax(190px,1.3fr);
+      gap:12px; align-items:end;
+    }
+    .filtros-fila > label{
+      display:flex; flex-direction:column; gap:4px; min-width:0;
+      font-size:.82rem; font-weight:600;
+    }
+    .filtros-fila input,
+    .filtros-fila select{
+      width:100%; min-width:0; box-sizing:border-box; height:40px;
+      background:#fff; color:inherit;
+      border:1px solid rgba(0,0,0,.18); border-radius:8px; padding:0 10px; font:inherit; font-weight:400;
+    }
+    .filtros-fila .campo-patente{ position:relative; }
+    .filtros-fila .campo-patente input{ text-transform:uppercase; padding-right:36px; }
+    .filtros-fila .campo-patente .icon-btn{
+      position:absolute; right:4px; bottom:4px; height:32px; width:32px;
+      background:transparent; border:0; border-radius:6px; color:inherit; cursor:pointer;
+    }
+    @media (max-width:760px){
+      .filtros-fila{ grid-template-columns:1fr 1fr; }
+      .filtros-fila .campo-patente, .filtros-fila .campo-orden{ grid-column:1 / -1; }
+    }
+  </style>
 </head>
 <body>
 
@@ -72,48 +113,44 @@
       <div class="kpi"><span class="kpi-lbl">Último cambio</span><strong id="kpi-ultimo" class="kpi-val">…</strong></div>
     </section>
 
-    <!-- Patentes -->
+    <!-- Filtros + Patentes -->
     <section id="panel-patentes" class="panel">
-      <div class="panel-head">
-        <h2>Patentes <span id="pat-count" class="count"></span></h2>
-      </div>
-
-      <div class="toolbar">
-        <div class="search">
-          <svg class="ico"><use href="#i-search"/></svg>
-          <input type="search" id="buscar" placeholder="Buscar patente" autocomplete="off"
-                 autocapitalize="characters" spellcheck="false" aria-label="Buscar patente">
-          <button id="buscar-limpiar" class="icon-btn" type="button" aria-label="Limpiar búsqueda" hidden>
-            <svg class="ico"><use href="#i-x"/></svg>
-          </button>
+      <div id="filtros" class="filtros-bloque" role="group" aria-labelledby="filtros-titulo">
+        <div class="panel-head">
+          <h2 id="filtros-titulo">Filtros <span id="filtros-n" class="badge" hidden></span></h2>
+          <button id="filtros-limpiar" class="btn ghost small" type="button" disabled>Limpiar filtros</button>
         </div>
-        <label class="ctl-orden">
-          <span class="sr-only">Ordenar patentes</span>
-          <svg class="ico"><use href="#i-sort"/></svg>
-          <select id="orden-patentes">
-            <option value="patente-asc">Patente (A → Z)</option>
-            <option value="patente-desc">Patente (Z → A)</option>
-            <option value="reciente">Último cambio (reciente primero)</option>
-            <option value="cambios">Cantidad de cambios</option>
-            <option value="km">Kilometraje más reciente</option>
-          </select>
-        </label>
-      </div>
 
-      <details id="filtros" class="filtros">
-        <summary>
-          <svg class="ico"><use href="#i-filter"/></svg>Filtros
-          <span id="filtros-n" class="badge" hidden></span>
-        </summary>
-        <div class="filtros-grid">
+        <div class="filtros-fila">
+          <label class="campo-patente">Patente
+            <input type="search" id="buscar" placeholder="Ej.: AB123CD" autocomplete="off"
+                   autocapitalize="characters" spellcheck="false">
+            <button id="buscar-limpiar" class="icon-btn" type="button" aria-label="Limpiar patente" hidden>
+              <svg class="ico"><use href="#i-x"/></svg>
+            </button>
+          </label>
           <label>Desde <input type="date" id="f-desde"></label>
           <label>Hasta <input type="date" id="f-hasta"></label>
-          <label data-campo="marca">Neumático <select id="f-marca"></select></label>
-          <label data-campo="zona">Zona <select id="f-zona"></select></label>
-          <label data-campo="chofer">Chofer <select id="f-chofer"></select></label>
-          <button id="filtros-limpiar" class="btn ghost" type="button" disabled>Limpiar filtros</button>
+          <label class="campo-orden">Ordenar por
+            <select id="orden-patentes">
+              <option value="patente-asc">Patente (A → Z)</option>
+              <option value="patente-desc">Patente (Z → A)</option>
+              <option value="reciente">Último cambio (reciente primero)</option>
+              <option value="cambios">Cantidad de cambios</option>
+              <option value="km">Kilometraje más reciente</option>
+            </select>
+          </label>
         </div>
-      </details>
+
+        <!-- Filtros retirados de la vista. Se conservan ocultos y vacíos
+             para que js/app.js los siga encontrando y no falle. -->
+        <div hidden aria-hidden="true">
+          <span id="pat-count"></span>
+          <select id="f-marca" tabindex="-1"></select>
+          <select id="f-zona" tabindex="-1"></select>
+          <select id="f-chofer" tabindex="-1"></select>
+        </div>
+      </div>
 
       <div id="patentes" class="plates" aria-live="polite"></div>
     </section>
@@ -214,5 +251,28 @@
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pwa.js"></script>
+  <script>
+    /* El filtro "Patente" usa el mismo campo de búsqueda que app.js.
+       Esto suma ese campo al botón "Limpiar filtros". */
+    (function () {
+      var pat = document.getElementById('buscar');
+      var limpiar = document.getElementById('filtros-limpiar');
+      var desde = document.getElementById('f-desde');
+      var hasta = document.getElementById('f-hasta');
+      function sync() {
+        if (pat.value.trim()) limpiar.disabled = false;
+        else if (!desde.value && !hasta.value) limpiar.disabled = true;
+      }
+      ['input', 'change', 'search'].forEach(function (ev) {
+        [pat, desde, hasta].forEach(function (el) { el.addEventListener(ev, function () { setTimeout(sync, 0); }); });
+      });
+      limpiar.addEventListener('click', function () {
+        if (!pat.value) return;
+        pat.value = '';
+        pat.dispatchEvent(new Event('input', { bubbles: true }));
+        setTimeout(sync, 0);
+      });
+    })();
+  </script>
 </body>
 </html>
