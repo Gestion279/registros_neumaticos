@@ -2,6 +2,7 @@
 
 App web estática (HTML + JS) para cargar los PDF de "Reporte cambio de neumáticos",
 ver el historial por patente y consultar el PDF original de cada registro.
+Se puede instalar en la computadora y en el celular (PWA).
 
 - **Base de datos y archivos:** Supabase (Postgres + Storage)
 - **Acceso:** libre, sin login. Cualquiera con el link puede ver y cargar PDF.
@@ -12,10 +13,14 @@ ver el historial por patente y consultar el PDF original de cada registro.
 
 ```
 index.html            Pantalla principal
-css/styles.css        Estilos
+css/styles.css        Estilos (PC, tablet y celular)
 js/config.js          URL y anon key de Supabase  <-- editar
-js/app.js             Lógica (lectura de PDF, tabla, visor)
-supabase/schema.sql   Tablas, vista, políticas y bucket  <-- ejecutar una vez
+js/app.js             Lógica (lectura de PDF, historial, filtros, controles)
+js/pwa.js             Instalación de la app
+sw.js                 Service worker (permite instalar y abrir sin conexión)
+manifest.webmanifest  Nombre, colores e íconos de la app instalada
+icons/                Íconos
+supabase/schema.sql   Tablas, vista, validaciones, políticas y bucket  <-- ejecutar
 vercel.json           Configuración de Vercel
 ```
 
@@ -46,16 +51,27 @@ git push -u origin main
 
 ## Uso
 
-1. **Cargar PDF**: elegir o arrastrar uno o varios archivos. La app lee los datos,
-   los muestra para revisarlos y, al confirmar, guarda el registro y el PDF.
-2. Elegir una patente: aparece su historial ordenado por fecha (creciente por defecto)
-   con el kilometraje de cada cambio.
-3. **Ver PDF** al costado de cada registro abre el original para consultas.
+1. **↑ Registros** (arriba a la derecha): elegir uno o varios PDF, o arrastrarlos a
+   cualquier parte de la página. La app lee los datos, los muestra para revisarlos y,
+   al confirmar, guarda el registro y el PDF.
+2. Buscar la patente (completa o parcial) y, si hace falta, ordenar o filtrar por fecha,
+   neumático, zona o chofer.
+3. Elegir una patente: aparece su historial (el cambio más reciente primero) con el
+   kilometraje y los km recorridos desde el cambio anterior. En PC se ve como tabla;
+   en celular, como fichas con **Ver detalle**.
+4. **Ver PDF** abre el original en una pestaña nueva; **Descargar** lo guarda.
+   La dirección incluye la patente (`/#AB500CM`), así que se puede compartir o recargar
+   sin perder la consulta.
 
-### Alertas automáticas
-- **Km menor al cambio anterior:** el kilometraje de un cambio es menor al del cambio previo
-  de la misma patente (posible error de carga o del odómetro).
-- **Sin PDF:** el registro no tiene archivo asociado.
+### Controles de consistencia
+La app nunca modifica los registros: solo los señala.
+- **Revisar** (amarillo): km menor al cambio anterior, mismo km que otro cambio
+  (posible duplicado), fecha posterior a hoy.
+- **Error** (rojo): fecha inválida o PDF que no se pudo abrir.
+- **Dato faltante** (gris): sin kilometraje o sin PDF.
+
+Al cargar un PDF, el formulario de revisión también avisa si el kilometraje no encaja
+con los cambios anterior y siguiente de esa patente.
 
 ## Notas
 
@@ -63,8 +79,11 @@ git push -u origin main
   pregunta si se reemplaza.
 - La lectura de PDF depende de que el reporte tenga el mismo formato de plantilla.
   Siempre se puede corregir cualquier dato antes de guardar.
-- Los PDF se guardan como `dominio/aaaa-mm-dd.pdf` en el bucket privado `pdfs`
-  y se muestran con la sesión del usuario (no hay links públicos).
+- Los PDF se guardan como `dominio/aaaa-mm-dd.pdf` en el bucket `pdfs` y se abren con
+  enlaces temporales (10 minutos). Ojo: sin login, cualquiera con la anon key puede
+  pedir esos enlaces, así que en la práctica los PDF son accesibles para quien tenga el link.
+- Cada vez que se reemplaza un registro, la versión anterior queda guardada en la tabla
+  `cambios_neumaticos_historial` (solo visible desde el panel de Supabase).
 
 ## Acceso libre: qué implica
 

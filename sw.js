@@ -1,11 +1,10 @@
 // Service worker: permite instalar la app y abrirla aunque la red falle.
 // Los datos (Supabase) nunca se guardan en caché: siempre se piden en vivo.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `neumaticos-${VERSION}`;
 const SHELL = [
   '/',
   '/css/styles.css',
-  '/css/tema.css',
   '/js/config.js',
   '/js/app.js',
   '/js/pwa.js',
