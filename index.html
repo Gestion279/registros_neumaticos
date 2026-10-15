@@ -2,38 +2,47 @@
 <html lang="es-AR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Historial de neumáticos</title>
+  <meta name="description" content="Historial de cambios de neumáticos por patente.">
+  <meta name="theme-color" content="#50786F">
+
+  <!-- App instalable (PWA) -->
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/favicon.ico" sizes="any">
+  <link rel="icon" href="/icons/favicon-32.png" type="image/png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Neumáticos">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/tema.css">
 </head>
 <body>
 
   <!-- ============ APP ============ -->
   <div id="vista-app">
     <header class="topbar">
-      <h1>Historial de neumáticos</h1>
+      <h1>
+        <img src="/icons/icon-192.png" alt="" width="28" height="28" class="topbar-logo">
+        Historial de neumáticos
+      </h1>
+      <div class="topbar-acciones">
+        <button id="btn-instalar" class="btn topbar-btn ghost" type="button" hidden>Instalar</button>
+        <!-- Mantiene id="dropzone" porque app.js lo usa para abrir el selector de archivos -->
+        <button id="dropzone" class="btn topbar-btn" type="button"
+                aria-label="Cargar registros en PDF">↑ Registros</button>
+      </div>
+      <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
+      <!-- La revisión antes de guardar queda siempre activa -->
+      <input type="checkbox" id="chk-revisar" checked hidden>
     </header>
 
     <main class="wrap">
-
-      <!-- Carga de PDF -->
-      <section class="panel">
-        <div id="dropzone" class="dropzone" tabindex="0" role="button"
-             aria-label="Cargar PDF: hacé clic o arrastrá archivos">
-          <div>
-            <strong>Cargar PDF</strong>
-            <span class="muted">Hacé clic o arrastrá uno o varios reportes de cambio de neumáticos</span>
-          </div>
-          <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
-        </div>
-        <label class="check">
-          <input type="checkbox" id="chk-revisar" checked>
-          Revisar los datos antes de guardar cada PDF
-        </label>
-      </section>
 
       <!-- Patentes -->
       <section class="panel">
@@ -133,5 +142,6 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/pwa.js"></script>
 </body>
 </html>
