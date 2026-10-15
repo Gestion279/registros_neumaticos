@@ -235,7 +235,8 @@
       if (!opciones.has(state.filtros[f])) state.filtros[f] = "";
       sel.value = state.filtros[f];
       // Solo se ofrece el filtro si hay al menos dos valores distintos
-      sel.closest("label").hidden = lista.length < 2;
+      const contenedor = sel.closest("label");
+      if (contenedor) contenedor.hidden = lista.length < 2;
     }
   }
 
