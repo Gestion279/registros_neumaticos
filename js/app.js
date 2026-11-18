@@ -1,10 +1,10 @@
 /* =====================================================================
    Historial de cambios de neumáticos
    - Acceso libre: cualquiera con el link puede ver y cargar
-   - Lectura de PDF en el navegador (pdf.js)
-   - Historial por patente con tabla (PC) y fichas (celular)
-   - Filtros, ordenamiento y controles de consistencia
-   - Los registros se leen una sola vez y se reutilizan en toda la pantalla
+   - Lista de vehículos con los datos de la póliza (marca, año, certificado
+     y zona), solo para patentes con cambios registrados
+   - Ficha por vehículo con gráfico de kilometraje e historial
+   - Lectura de PDF en el navegador (pdf.js) y controles de consistencia
    ===================================================================== */
 (() => {
   "use strict";
@@ -12,7 +12,10 @@
   const { SUPABASE_URL, SUPABASE_ANON_KEY } = window.APP_CONFIG || {};
   const BUCKET = "pdfs";
   const TABLA = "cambios_neumaticos";
+  const FN_POLIZA = "vehiculos_poliza_con_cambios"; // supabase/vehiculos_poliza.sql
   const PAGINA = 1000; // límite de filas por consulta de Supabase
+  const DIAS_ALERTA = 180; // amarillo: entre 6 y 12 meses sin cambio
+  const DIAS_VENCIDO = 365; // rojo: más de 12 meses sin cambio
 
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
@@ -21,18 +24,22 @@
   const sb = configurado ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
   const $ = (id) => document.getElementById(id);
-  const mqMovil = window.matchMedia("(max-width: 760px)");
 
   const state = {
     registros: [],          // filas tal como vienen de la base (no se modifican)
-    vehiculos: new Map(),   // dominio -> { dominio, cambios[], ultimo, ultimoKm, aRevisar }
+    poliza: new Map(),      // dominio -> { certificado, marca, anio, zona, periodo_id, vigencia_hasta }
+    polizaError: null,      // la función de póliza todavía no existe o falló
+    vehiculos: new Map(),   // dominio -> { dominio, cambios[], ultimo, ultimoConKm, aRevisar, pol, dias, ... }
     cargando: true,
     errorCarga: null,
-    filtro: "",
-    ordenPat: "patente-asc",
-    filtros: { desde: "", hasta: "", marca: "", zona: "", chofer: "" },
-    sel: null,
-    asc: false,             // historial: más reciente primero
+    vista: "lista",         // lista | revisar | ficha
+    q: "",
+    fEstado: "",
+    fZona: "",
+    sort: { k: "cert", dir: 1 },
+    marcados: new Set(),    // patentes tildadas para exportar
+    sel: null,              // patente abierta en la ficha
+    asc: false,             // ficha: más reciente primero
     pdfFallidos: new Set(), // ids cuyo PDF no se pudo abrir en esta sesión
   };
 
@@ -62,10 +69,16 @@
     const d = new Date(ts);
     return isNaN(d) ? "" : d.toLocaleString("es-AR", { dateStyle: "short", timeStyle: "short" });
   };
+  const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  const fmtMesAnio = (ms) => {
+    const d = new Date(ms);
+    return `${MESES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+  };
   const fmtNum = (n) => (n == null ? "" : Number(n).toLocaleString("es-AR"));
   const limpiarDominio = (s) => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
   const hoyMs = () =>
     fechaMs(new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" }));
+  const DIA = 86400000;
 
   // Kilometraje -> número entero. Acepta 213411, "213411", "213.411" o "213.411 km".
   // El punto se toma como separador de miles (formato argentino), nunca como decimal.
@@ -78,10 +91,20 @@
     return null;
   }
 
-  // Normaliza textos libres para agrupar en filtros ("Mendoza " = "MENDOZA").
-  const clave = (s) => String(s ?? "").trim().replace(/\s+/g, " ").toUpperCase();
-
   const plural = (n, uno, varios) => `${fmtNum(n)} ${n === 1 ? uno : varios}`;
+
+  // "Hace 3 semanas", "Hace 8 meses", "Hace 1 año y 2 meses"
+  function haceTxt(dias) {
+    if (dias == null) return "Sin fecha";
+    if (dias < 0) return "Fecha futura";
+    if (dias === 0) return "Hoy";
+    if (dias < 14) return dias === 1 ? "Hace 1 día" : `Hace ${dias} días`;
+    if (dias < 60) return `Hace ${Math.round(dias / 7)} semanas`;
+    const meses = Math.round(dias / 30.44);
+    if (meses < 12) return `Hace ${meses} meses`;
+    const a = Math.floor(meses / 12), m = meses % 12;
+    return `Hace ${a} año${a > 1 ? "s" : ""}${m ? ` y ${m} mes${m > 1 ? "es" : ""}` : ""}`;
+  }
 
   function toast(msg, esError = false, html = false) {
     const el = document.createElement("div");
@@ -95,36 +118,61 @@
 
   const mensajeError = (e) => (e && (e.message || e.error_description)) || String(e);
   const ico = (id, cls = "ico") => `<svg class="${cls}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+  const plate = (dom, cls = "plate") => `<span class="${cls}"><span>${esc(dom)}</span></span>`;
+  const zonaHtml = (z) => (z ? `<span class="zona">${esc(z)}</span>` : '<span class="zona none">Sin zona</span>');
 
   /* ---------------------------------------------------------------
-     Carga de datos (una sola lectura, paginada)
+     Carga de datos: cambios (paginado) + datos de póliza (una llamada)
      --------------------------------------------------------------- */
+  async function leerCambios() {
+    const filas = [];
+    for (let desde = 0; ; desde += PAGINA) {
+      const { data, error } = await sb
+        .from(TABLA)
+        .select("*")
+        .order("dominio", { ascending: true })
+        .order("fecha_cambio", { ascending: true })
+        .order("id", { ascending: true })
+        .range(desde, desde + PAGINA - 1);
+      if (error) throw error;
+      filas.push(...(data || []));
+      if (!data || data.length < PAGINA) break;
+    }
+    return filas;
+  }
+
+  // Si la función de póliza todavía no se creó, la app sigue funcionando sin esos datos.
+  async function leerPoliza() {
+    const { data, error } = await sb.rpc(FN_POLIZA);
+    if (error) throw error;
+    return new Map((data || []).map((p) => [limpiarDominio(p.patente), p]));
+  }
+
   async function cargarDatos() {
     state.cargando = true;
     state.errorCarga = null;
     renderTodo();
-    try {
-      const filas = [];
-      for (let desde = 0; ; desde += PAGINA) {
-        const { data, error } = await sb
-          .from(TABLA)
-          .select("*")
-          .order("dominio", { ascending: true })
-          .order("fecha_cambio", { ascending: true })
-          .order("id", { ascending: true })
-          .range(desde, desde + PAGINA - 1);
-        if (error) throw error;
-        filas.push(...(data || []));
-        if (!data || data.length < PAGINA) break;
-      }
-      state.registros = filas;
-      procesar();
-    } catch (e) {
-      state.errorCarga = mensajeError(e);
+    const [rc, rp] = await Promise.allSettled([leerCambios(), leerPoliza()]);
+    if (rc.status === "fulfilled") {
+      state.registros = rc.value;
+    } else {
+      state.errorCarga = mensajeError(rc.reason);
     }
+    if (rp.status === "fulfilled") {
+      state.poliza = rp.value;
+      state.polizaError = null;
+    } else {
+      const avisar = !state.polizaError;
+      state.polizaError = mensajeError(rp.reason);
+      if (avisar && rc.status === "fulfilled")
+        toast("No se pudieron leer los datos de la póliza (marca, año, zona). Se muestran solo los cambios.", true);
+      console.warn("Póliza:", state.polizaError);
+    }
+    if (!state.errorCarga) procesar();
     state.cargando = false;
     if (state.sel && !state.vehiculos.has(state.sel)) state.sel = null;
-    llenarFiltros();
+    for (const d of [...state.marcados]) if (!state.vehiculos.has(d)) state.marcados.delete(d);
+    llenarZonas();
     renderTodo();
   }
 
@@ -143,6 +191,7 @@
 
     const vehiculos = new Map();
     for (const [dominio, filas] of grupos) {
+      if (!dominio) continue;
       // Orden cronológico real; a igual fecha, por id (orden de carga).
       const cambios = filas
         .map((r) => ({ r, ms: fechaMs(r.fecha_cambio), km: parseKm(r.kilometraje) }))
@@ -199,12 +248,30 @@
       const ultimo = validos[validos.length - 1] || null;
       const ultimoConKm = [...validos].reverse().find((c) => c.km != null) || null;
 
+      // Promedios entre cambios consecutivos (solo tramos válidos)
+      const tramosKm = [], tramosDias = [];
+      for (let i = 1; i < validos.length; i++) {
+        const a = validos[i - 1], b = validos[i];
+        if (a.km != null && b.km != null && b.km > a.km) tramosKm.push(b.km - a.km);
+        if (b.ms > a.ms) tramosDias.push((b.ms - a.ms) / DIA);
+      }
+      const prom = (xs) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
+
+      const dias = ultimo ? Math.round((hoy - ultimo.ms) / DIA) : null;
+      const edad = dias == null ? "nd" : dias > DIAS_VENCIDO ? "vencido" : dias > DIAS_ALERTA ? "alerta" : "ok";
+
       vehiculos.set(dominio, {
         dominio,
         cambios,
         ultimo,
         ultimoConKm,
         aRevisar: cambios.filter((c) => c.problemas.some((x) => x.nivel !== "falta")).length,
+        pol: state.poliza.get(dominio) || null,
+        dias,
+        edad,
+        kmProm: prom(tramosKm),
+        tramosKm,
+        diasProm: prom(tramosDias),
       });
     }
     state.vehiculos = vehiculos;
@@ -215,202 +282,240 @@
     if (!state.pdfFallidos.has(c.r.id)) return c.problemas;
     return [...c.problemas, { nivel: "error", txt: "PDF no disponible", det: "El archivo no se pudo abrir. Revisalo en Supabase Storage." }];
   }
+  const aRevisarDe = (c) => problemasDe(c).filter((p) => p.nivel !== "falta");
 
   /* ---------------------------------------------------------------
-     Filtros
+     Lista de vehículos: filtros, orden y exportación
      --------------------------------------------------------------- */
-  const CAMPOS_FILTRO = { marca: "marca_neumatico", zona: "zona", chofer: "chofer" };
+  function llenarZonas() {
+    const cnt = new Map();
+    let sinZona = 0;
+    for (const v of state.vehiculos.values()) {
+      const z = v.pol?.zona;
+      if (z) cnt.set(z, (cnt.get(z) || 0) + 1);
+      else sinZona++;
+    }
+    const total = state.vehiculos.size;
+    const lista = [...cnt].sort((a, b) => a[0].localeCompare(b[0], "es"));
+    $("f-zona").innerHTML =
+      `<option value="">Todas las zonas (${fmtNum(total)})</option>` +
+      lista.map(([z, n]) => `<option value="${esc(z)}">${esc(z)} (${fmtNum(n)})</option>`).join("") +
+      (sinZona ? `<option value="__none">Sin zona (${fmtNum(sinZona)})</option>` : "");
+    if (state.fZona && state.fZona !== "__none" && !cnt.has(state.fZona)) state.fZona = "";
+    if (state.fZona === "__none" && !sinZona) state.fZona = "";
+    $("f-zona").value = state.fZona;
+  }
 
-  function llenarFiltros() {
-    for (const [f, col] of Object.entries(CAMPOS_FILTRO)) {
-      const opciones = new Map();
-      for (const r of state.registros) {
-        const k = clave(r[col]);
-        if (k && !opciones.has(k)) opciones.set(k, String(r[col]).trim().replace(/\s+/g, " "));
-      }
-      const sel = $("f-" + f);
-      const lista = [...opciones].sort((a, b) => a[1].localeCompare(b[1], "es"));
-      sel.innerHTML =
-        '<option value="">Todos</option>' + lista.map(([k, txt]) => `<option value="${esc(k)}">${esc(txt)}</option>`).join("");
-      if (!opciones.has(state.filtros[f])) state.filtros[f] = "";
-      sel.value = state.filtros[f];
-      // Solo se ofrece el filtro si hay al menos dos valores distintos
-      const contenedor = sel.closest("label");
-      if (contenedor) contenedor.hidden = lista.length < 2;
+  function cumpleEstado(v, e) {
+    switch (e) {
+      case "revisar": return v.aRevisar > 0;
+      case "vencido": return v.edad === "vencido";
+      case "alerta": return v.edad === "alerta";
+      case "sinpoliza": return !v.pol;
+      default: return true;
     }
   }
 
-  const filtrosActivos = () => Object.values(state.filtros).filter(Boolean).length;
+  function vehiculosVisibles() {
+    const q = state.q.trim().toLowerCase();
+    const qDom = limpiarDominio(state.q);
+    const lista = [...state.vehiculos.values()].filter((v) => {
+      if (!cumpleEstado(v, state.fEstado)) return false;
+      if (state.fZona === "__none" ? v.pol?.zona : state.fZona && v.pol?.zona !== state.fZona) return false;
+      if (!q) return true;
+      if (qDom && v.dominio.includes(qDom)) return true;
+      const txt = [v.pol?.marca, v.pol?.anio, v.pol?.zona, v.pol?.certificado].filter(Boolean).join(" ").toLowerCase();
+      return txt.includes(q);
+    });
 
-  function coincide(c) {
-    const f = state.filtros;
-    if (f.desde && !(c.ms >= fechaMs(f.desde))) return false;
-    if (f.hasta && !(c.ms <= fechaMs(f.hasta))) return false;
-    for (const [k, col] of Object.entries(CAMPOS_FILTRO)) if (f[k] && clave(c.r[col]) !== f[k]) return false;
-    return true;
+    const { k, dir } = state.sort;
+    const porPat = (a, b) => a.dominio.localeCompare(b.dominio, "es", { numeric: true });
+    // Los valores faltantes van siempre al final, en cualquier sentido.
+    const cmpNulos = (va, vb, cmp) => (va == null && vb == null ? 0 : va == null ? 1 : vb == null ? -1 : dir * cmp(va, vb));
+    const num = (a, b) => a - b;
+    const txt = (a, b) => String(a).localeCompare(String(b), "es", { numeric: true });
+    const clave = {
+      cert: (v) => v.pol?.certificado ?? null,
+      patente: (v) => v.dominio,
+      marca: (v) => v.pol?.marca || null,
+      zona: (v) => v.pol?.zona || null,
+      ultimo: (v) => (v.ultimo ? v.ultimo.ms : null),
+      km: (v) => (v.ultimoConKm ? v.ultimoConKm.km : null),
+      cambios: (v) => v.cambios.length,
+    }[k];
+    const tipo = ["cert", "ultimo", "km", "cambios"].includes(k) ? num : txt;
+    return lista.sort((a, b) => cmpNulos(clave(a), clave(b), tipo) || porPat(a, b));
   }
 
-  /* ---------------------------------------------------------------
-     Indicadores
-     --------------------------------------------------------------- */
+  const filtrosActivos = () => !!(state.q.trim() || state.fEstado || state.fZona);
+
+  function estadosHtml(v) {
+    const e = [];
+    if (v.aRevisar) e.push(`<span class="estado revisar" title="${plural(v.aRevisar, "registro para revisar", "registros para revisar")}">Para revisar</span>`);
+    if (v.edad === "vencido") e.push('<span class="estado vencido">Más de 12 meses</span>');
+    if (!e.length) e.push(v.edad === "alerta" ? '<span class="estado alerta">6 a 12 meses</span>' : '<span class="estado ok">Al día</span>');
+    return `<div class="estados">${e.join("")}</div>`;
+  }
+
+  function edadHtml(v) {
+    if (v.dias == null) return '<span class="nd">Sin fecha válida</span>';
+    const pct = Math.max(3, Math.min(100, Math.round((Math.max(0, v.dias) / DIAS_VENCIDO) * 100)));
+    return `<div class="edad ${v.edad}"><span class="barra" aria-hidden="true"><i style="width:${pct}%"></i></span><span>${haceTxt(v.dias)}</span></div>`;
+  }
+
+  function filaVehiculo(v) {
+    const p = v.pol;
+    const u = v.ultimo?.r;
+    const marcado = state.marcados.has(v.dominio);
+    const cls = [marcado ? "sel" : "", v.aRevisar ? "revisar" : ""].filter(Boolean).join(" ");
+    return `<tr data-dominio="${esc(v.dominio)}" class="${cls}">
+      <td class="chk"><input type="checkbox" class="marca-chk" ${marcado ? "checked" : ""} aria-label="Seleccionar ${esc(v.dominio)}"></td>
+      <td class="cert">${p?.certificado ?? '<span class="nd">—</span>'}</td>
+      <td class="pat">${plate(v.dominio)}</td>
+      <td class="marca">${p?.marca ? esc(p.marca) : '<span class="nd">Sin datos de póliza</span>'}${p?.anio ? `<small>${esc(p.anio)}</small>` : ""}</td>
+      <td class="zn">${p ? zonaHtml(p.zona) : '<span class="zona none">—</span>'}</td>
+      <td class="ult"><span class="fecha">${u ? esc(fmtFecha(u.fecha_cambio)) : ""}</span>${edadHtml(v)}</td>
+      <td class="num km">${v.ultimoConKm ? fmtNum(v.ultimoConKm.km) : '<span class="nd">Sin dato</span>'}</td>
+      <td class="neum">${u?.marca_neumatico ? esc(u.marca_neumatico) : '<span class="nd">—</span>'}${u?.medida || u?.cantidad != null ? `<small>${[u.medida && esc(u.medida), u.cantidad != null && `${u.cantidad} u.`].filter(Boolean).join(" · ")}</small>` : ""}</td>
+      <td class="num ncamb">${fmtNum(v.cambios.length)}</td>
+      <td class="est">${estadosHtml(v)}</td>
+      <td class="acc"><button class="btn small" type="button" data-accion="abrir" data-dominio="${esc(v.dominio)}">Historial</button></td>
+    </tr>`;
+  }
+
+  function vacio(colspan, msg, acciones = "", error = false) {
+    return `<tr class="vacio${error ? " error" : ""}"><td colspan="${colspan}"><p style="margin:0">${msg}</p>${acciones}</td></tr>`;
+  }
+
   function renderKpis() {
     const set = (id, v) => ($(id).textContent = v);
-    if (state.cargando) return ["kpi-vehiculos", "kpi-registros", "kpi-ultimo"].forEach((id) => set(id, "…"));
-    if (state.errorCarga || !state.registros.length)
-      return ["kpi-vehiculos", "kpi-registros", "kpi-ultimo"].forEach((id) => set(id, "—"));
-
-    const hoy = hoyMs();
-    let validos = 0;
-    let ultimo = null;
-    for (const v of state.vehiculos.values())
-      for (const c of v.cambios) {
-        if (isNaN(c.ms) || !v.dominio) continue; // registros sin fecha válida no cuentan
-        validos++;
-        if (c.ms <= hoy && (!ultimo || c.ms > ultimo.ms)) ultimo = c;
-      }
-    set("kpi-vehiculos", fmtNum([...state.vehiculos.keys()].filter(Boolean).length));
-    set("kpi-registros", fmtNum(validos));
-    set("kpi-ultimo", ultimo ? fmtFecha(ultimo.r.fecha_cambio) : "—");
-  }
-
-  /* ---------------------------------------------------------------
-     Patentes
-     --------------------------------------------------------------- */
-  function vehiculosVisibles() {
-    const q = limpiarDominio(state.filtro);
-    const hayFiltros = filtrosActivos() > 0;
-    const lista = [...state.vehiculos.values()].filter(
-      (v) => v.dominio.includes(q) && (!hayFiltros || v.cambios.some(coincide))
+    if (state.cargando) return ["k-total", "k-revisar", "k-vencido", "k-prom"].forEach((id) => set(id, "…"));
+    if (state.errorCarga) return ["k-total", "k-revisar", "k-vencido", "k-prom"].forEach((id) => set(id, "—"));
+    const vs = [...state.vehiculos.values()];
+    set("k-total", fmtNum(vs.length));
+    const sinPol = vs.filter((v) => !v.pol).length;
+    $("k-total-sub").textContent =
+      state.polizaError ? "Sin datos de póliza disponibles" : sinPol ? `${fmtNum(sinPol)} sin datos de póliza` : "Con cambios registrados";
+    set("k-revisar", fmtNum(vs.filter((v) => v.aRevisar).length));
+    set("k-vencido", fmtNum(vs.filter((v) => v.edad === "vencido").length));
+    const tramos = vs.flatMap((v) => v.tramosKm);
+    set("k-prom", tramos.length ? `${fmtNum(Math.round(tramos.reduce((s, x) => s + x, 0) / tramos.length))} km` : "—");
+    document.querySelectorAll(".kpi[data-estado]").forEach((b) =>
+      b.setAttribute("aria-pressed", String(b.dataset.estado === state.fEstado && (b.dataset.estado !== "" || !filtrosActivos())))
     );
-    const porPatente = (a, b) => a.dominio.localeCompare(b.dominio, "es", { numeric: true });
-    const ms = (v) => (v.ultimo ? v.ultimo.ms : -Infinity);
-    const km = (v) => (v.ultimoConKm ? v.ultimoConKm.km : -Infinity);
-    const ord = {
-      "patente-asc": porPatente,
-      "patente-desc": (a, b) => porPatente(b, a),
-      reciente: (a, b) => ms(b) - ms(a) || porPatente(a, b),
-      cambios: (a, b) => b.cambios.length - a.cambios.length || porPatente(a, b),
-      km: (a, b) => km(b) - km(a) || porPatente(a, b),
-    }[state.ordenPat];
-    return lista.sort(ord);
   }
 
-  function renderPatentes() {
-    const cont = $("patentes");
-    const count = $("pat-count");
-    cont.removeAttribute("aria-busy");
+  function renderLista() {
+    const tb = $("tb"), tf = $("tf");
+    $("filtros-limpiar").hidden = !filtrosActivos();
+    document.querySelectorAll("#tabla-veh th[data-sort]").forEach((th) => {
+      if (th.dataset.sort === state.sort.k) th.setAttribute("aria-sort", state.sort.dir > 0 ? "ascending" : "descending");
+      else th.removeAttribute("aria-sort");
+    });
 
     if (!configurado) {
-      count.textContent = "";
-      cont.innerHTML = estado("Falta configurar <code>js/config.js</code> con la URL y la anon key de Supabase.");
+      tf.innerHTML = "";
+      tb.innerHTML = vacio(11, "Falta configurar <code>js/config.js</code> con la URL y la anon key de Supabase.");
       return;
     }
     if (state.cargando) {
-      count.textContent = "";
-      cont.setAttribute("aria-busy", "true");
-      cont.innerHTML = Array.from({ length: 6 }, () => '<div class="pcard esqueleto" aria-hidden="true"></div>').join("") +
-        '<span class="sr-only">Cargando patentes…</span>';
+      tf.innerHTML = "";
+      $("lista-n").textContent = "Cargando…";
+      tb.innerHTML = Array.from({ length: 6 }, () => `<tr class="esq" aria-hidden="true"><td colspan="11"><span></span></td></tr>`).join("");
       return;
     }
     if (state.errorCarga) {
-      count.textContent = "";
-      cont.innerHTML = estado(
-        `No se pudieron cargar los registros. <span class="muted">${esc(state.errorCarga)}</span>`,
-        `<button class="btn ghost" type="button" data-accion="reintentar">${ico("refresh")}Reintentar</button>`,
-        true
-      );
+      tf.innerHTML = "";
+      $("lista-n").textContent = "";
+      tb.innerHTML = vacio(11, `No se pudieron cargar los registros. <span class="muted">${esc(state.errorCarga)}</span>`,
+        `<div><button class="btn" type="button" data-accion="reintentar">${ico("refresh")}Reintentar</button></div>`, true);
       return;
     }
     if (!state.vehiculos.size) {
-      count.textContent = "";
-      cont.innerHTML = estado("Todavía no hay registros. Usá <strong>Registros</strong> para cargar el primer PDF.");
+      tf.innerHTML = "";
+      $("lista-n").textContent = "";
+      tb.innerHTML = vacio(11, "Todavía no hay registros. Usá <strong>Cargar PDF</strong> para cargar el primero.");
       return;
     }
 
     const lista = vehiculosVisibles();
     const total = state.vehiculos.size;
-    count.textContent = lista.length === total ? `(${fmtNum(total)})` : `(${fmtNum(lista.length)} de ${fmtNum(total)})`;
+    $("lista-n").textContent = lista.length === total ? plural(total, "vehículo", "vehículos") : `${fmtNum(lista.length)} de ${plural(total, "vehículo", "vehículos")}`;
+    $("sel-todos").checked = lista.length > 0 && lista.every((v) => state.marcados.has(v.dominio));
+    $("sel-todos").indeterminate = !$("sel-todos").checked && lista.some((v) => state.marcados.has(v.dominio));
 
     if (!lista.length) {
-      const acciones = [];
-      if (state.filtro) acciones.push('<button class="btn ghost" type="button" data-accion="limpiar-busqueda">Limpiar búsqueda</button>');
-      if (filtrosActivos()) acciones.push('<button class="btn ghost" type="button" data-accion="limpiar-filtros">Limpiar filtros</button>');
-      cont.innerHTML = estado("Ninguna patente coincide con la búsqueda o los filtros.", acciones.join(""));
+      tf.innerHTML = "";
+      tb.innerHTML = vacio(11, "Ningún vehículo coincide con la búsqueda o los filtros.",
+        `<div><button class="btn" type="button" data-accion="limpiar-filtros">Limpiar filtros</button></div>`);
       return;
     }
+    tb.innerHTML = lista.map(filaVehiculo).join("");
+    tf.innerHTML = `<tr><td colspan="6">${lista.length === total ? "Total" : "Subtotal"} ${plural(lista.length, "vehículo", "vehículos")}</td>
+      <td colspan="5" class="fuente">Marca, año, certificado y zona: póliza${state.polizaError ? " (no disponible)" : ""} · Solo vehículos con cambios registrados</td></tr>`;
+  }
 
-    cont.innerHTML = lista
-      .map((v) => {
-        const n = v.cambios.length;
-        const alerta = v.aRevisar
-          ? `<span class="pcard-alerta" title="${plural(v.aRevisar, "registro para revisar", "registros para revisar")}">${ico("alert")}${v.aRevisar}</span>`
-          : "";
-        return `
-        <button class="pcard" type="button" data-dominio="${esc(v.dominio)}" aria-pressed="${v.dominio === state.sel}">
-          <span class="plate">${esc(v.dominio)}</span>
-          <span class="pcard-info">
-            <span class="pcard-n">${plural(n, "cambio", "cambios")}${alerta}</span>
-            <span class="pcard-f">${v.ultimo ? "Último: " + fmtFecha(v.ultimo.r.fecha_cambio) : "Sin fecha válida"}</span>
-          </span>
-          ${ico("chev", "ico pcard-chev")}
-        </button>`;
-      })
+  function renderBulk() {
+    const n = state.marcados.size;
+    $("bulk").hidden = !n;
+    $("bulk-n").textContent = n === 1 ? "1 vehículo seleccionado" : `${fmtNum(n)} vehículos seleccionados`;
+  }
+
+  /* ---------------------------------------------------------------
+     Para revisar: todos los registros con observaciones de la flota
+     --------------------------------------------------------------- */
+  function itemsRevisar() {
+    const items = [];
+    for (const v of state.vehiculos.values())
+      for (const c of v.cambios) {
+        const ps = aRevisarDe(c);
+        if (ps.length) items.push({ v, c, ps });
+      }
+    return items.sort((a, b) => (b.c.ms || 0) - (a.c.ms || 0) || a.v.dominio.localeCompare(b.v.dominio));
+  }
+
+  function renderRevisar() {
+    const items = state.cargando || state.errorCarga ? [] : itemsRevisar();
+    const cnt = $("t-cnt");
+    cnt.hidden = !items.length;
+    cnt.textContent = fmtNum(items.length);
+    cnt.title = plural(items.length, "registro para revisar", "registros para revisar");
+    if (state.vista !== "revisar") return;
+
+    $("rev-n").textContent = items.length ? plural(items.length, "registro", "registros") : "";
+    if (state.cargando) return ($("tb-rev").innerHTML = vacio(6, "Cargando…"));
+    if (!items.length) return ($("tb-rev").innerHTML = vacio(6, "No hay registros para revisar."));
+    $("tb-rev").innerHTML = items
+      .map(({ v, c, ps }) => `<tr data-dominio="${esc(v.dominio)}">
+        <td class="pat">${plate(v.dominio)}</td>
+        <td class="marca">${v.pol?.marca ? esc(v.pol.marca) : '<span class="nd">Sin datos de póliza</span>'}${v.pol?.anio ? `<small>${esc(v.pol.anio)}</small>` : ""}</td>
+        <td class="fecha">${esc(fmtFecha(c.r.fecha_cambio)) || '<span class="nd">Sin fecha</span>'}</td>
+        <td class="num km">${c.km != null ? fmtNum(c.km) : '<span class="nd">Sin dato</span>'}</td>
+        <td>${tagsHtml(ps)}<small>${esc(ps[0].det)}</small></td>
+        <td class="acc"><div class="pdf-acc">${c.r.pdf_path ? `<button class="btn small" type="button" data-accion="ver" data-id="${c.r.id}">${ico("file")}Ver PDF</button>` : ""}<button class="btn small" type="button" data-accion="abrir" data-dominio="${esc(v.dominio)}">Historial</button></div></td>
+      </tr>`)
       .join("");
   }
 
-  function estado(msg, acciones = "", error = false) {
-    return `<div class="estado${error ? " error" : ""}"><p>${msg}</p>${acciones ? `<div class="estado-acc">${acciones}</div>` : ""}</div>`;
-  }
-
   /* ---------------------------------------------------------------
-     Selección y navegación
+     Ficha del vehículo
      --------------------------------------------------------------- */
-  function seleccionar(dominio, { historial = true, desplazar = true } = {}) {
-    if (!state.vehiculos.has(dominio)) return;
-    state.sel = dominio;
-    if (historial) {
-      const hash = "#" + encodeURIComponent(dominio);
-      if (location.hash !== hash) {
-        // Desde el listado se agrega una entrada (el botón Atrás vuelve al listado);
-        // de una patente a otra se reemplaza, para no acumular historial.
-        if (location.hash) history.replaceState({ p: dominio }, "", hash);
-        else history.pushState({ p: dominio }, "", hash);
-      }
-    }
-    renderPatentes();
-    renderHistorial();
-    if (desplazar) {
-      const sec = $("historial");
-      sec.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "start" });
-      $("hist-titulo").focus({ preventScroll: true });
-    }
-  }
-
-  function volverAlListado() {
-    const card = state.sel && $("patentes").querySelector(`[data-dominio="${CSS.escape(state.sel)}"]`);
-    const destino = card || $("panel-patentes");
-    destino.scrollIntoView({ behavior: "smooth", block: "center" });
-    if (card) card.focus({ preventScroll: true });
-  }
-
-  window.addEventListener("popstate", () => {
-    const dom = decodeURIComponent(location.hash.slice(1));
-    if (dom && state.vehiculos.has(dom)) seleccionar(dom, { historial: false });
-    else volverAlListado(); // la selección se mantiene marcada
-  });
-
-  /* ---------------------------------------------------------------
-     Historial
-     --------------------------------------------------------------- */
-  const siNo = (v) =>
-    v === true ? '<span class="sn si">Sí</span>' : v === false ? '<span class="sn no">No</span>' : '<span class="nd" title="Sin dato">—</span>';
+  const SERVICIOS = [["alineacion", "Alineación", "Alin."], ["balanceo", "Balanceo", "Bal."], ["rotacion", "Rotación", "Rot."], ["valvulas", "Válvulas", "Válv."]];
+  const serviciosHtml = (r, corto = false) =>
+    `<div class="servicios">${SERVICIOS.map(([k, nombre, abrev]) => {
+      const t = corto ? abrev : nombre;
+      const v = r[k];
+      return v === true ? `<span class="serv si" title="${nombre}: sí">${t}</span>`
+        : v === false ? `<span class="serv no" title="${nombre}: no">${t}</span>`
+        : `<span class="serv nd" title="${nombre}: sin dato">${t} ?</span>`;
+    }).join("")}</div>`;
 
   function deltaHtml(c) {
     const d = c.delta;
-    if (d.tipo === "primero") return '<span class="nd" title="Es el primer cambio registrado">Sin registro anterior</span>';
+    if (d.tipo === "primero") return '<span class="nd" title="Es el primer cambio registrado">Primer registro</span>';
     if (d.tipo === "nd") return '<span class="nd" title="Falta el kilometraje de este cambio o del anterior">No disponible</span>';
     if (d.tipo === "neg")
-      return `<span class="tag revisar" title="Diferencia: ${fmtNum(d.valor)} km. El kilometraje es menor al del cambio anterior.">${ico("alert")}Revisar</span>`;
+      return `<span class="tag revisar" title="Diferencia: ${fmtNum(d.valor)} km. El kilometraje es menor al del cambio anterior.">${ico("alert")}${fmtNum(d.valor)}</span>`;
     return `+${fmtNum(d.valor)}`;
   }
 
@@ -426,69 +531,71 @@
     const titulo = c.r.archivo_origen ? ` title="Archivo original: ${esc(c.r.archivo_origen)}"` : "";
     return `<div class="pdf-acc">
       <button class="btn small primary" type="button" data-accion="ver" data-id="${c.r.id}"${titulo}>${ico("file")}Ver PDF</button>
-      <button class="btn small ghost${compacto ? " solo-ico" : ""}" type="button" data-accion="descargar" data-id="${c.r.id}" aria-label="Descargar PDF del ${fmtFecha(c.r.fecha_cambio)}" title="Descargar">${ico("download")}${compacto ? "" : "<span>Descargar</span>"}</button>
+      <button class="btn small${compacto ? " solo-ico" : ""}" type="button" data-accion="descargar" data-id="${c.r.id}" aria-label="Descargar PDF del ${fmtFecha(c.r.fecha_cambio)}" title="Descargar">${ico("download")}${compacto ? "" : "<span>Descargar</span>"}</button>
     </div>`;
   }
 
-  function renderHistorial() {
-    const sec = $("historial");
-    const v = state.sel && state.vehiculos.get(state.sel);
-    if (!v || state.cargando || state.errorCarga) {
-      sec.hidden = true;
-      return;
-    }
-    sec.hidden = false;
-
-    // Encabezado del vehículo
-    $("hist-plate").textContent = v.dominio;
-    const datos = [
-      ["Cambios", fmtNum(v.cambios.length)],
-      ["Último cambio", v.ultimo ? fmtFecha(v.ultimo.r.fecha_cambio) : "—"],
-      [
-        "Km más reciente",
-        v.ultimoConKm
-          ? `${fmtNum(v.ultimoConKm.km)} km` +
-            (v.ultimoConKm !== v.ultimo ? ` <span class="muted">(${fmtFecha(v.ultimoConKm.r.fecha_cambio)})</span>` : "")
-          : "—",
-      ],
-    ];
-    if (v.aRevisar) datos.push(["Para revisar", `<span class="tag revisar">${ico("alert")}${v.aRevisar}</span>`]);
-    $("hist-datos").innerHTML = datos.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
-
-    const conPdf = [...v.cambios].reverse().find((c) => c.r.pdf_path && !isNaN(c.ms));
-    const btnUlt = $("btn-ultimo-pdf");
-    btnUlt.disabled = !conPdf;
-    btnUlt.dataset.id = conPdf ? conPdf.r.id : "";
-    btnUlt.title = conPdf ? `Abre el PDF del ${fmtFecha(conPdf.r.fecha_cambio)}` : "Ningún cambio de este vehículo tiene PDF";
-
-    $("btn-orden").innerHTML = state.asc
-      ? `${ico("sort")}Más antiguo primero`
-      : `${ico("sort")}Más reciente primero`;
-    $("btn-orden").setAttribute("aria-label", `Orden por fecha: ${state.asc ? "más antiguo primero" : "más reciente primero"}. Cambiar orden`);
-
-    // Filas (los km recorridos ya se calcularon sobre el historial completo)
-    const visibles = v.cambios.filter(coincide);
-    const filas = state.asc ? visibles : [...visibles].reverse();
-
-    const nota = $("hist-nota");
-    if (visibles.length < v.cambios.length) {
-      nota.innerHTML = `Mostrando ${fmtNum(visibles.length)} de ${plural(v.cambios.length, "registro", "registros")} por los filtros activos. ` +
-        `<button class="link" type="button" data-accion="limpiar-filtros">Limpiar filtros</button>`;
-      nota.hidden = false;
-    } else nota.hidden = true;
-
-    if (!filas.length) {
-      const msg = '<td colspan="13">' + estado("Ningún registro de este vehículo coincide con los filtros.") + "</td>";
-      $("tbody").innerHTML = `<tr class="vacia">${msg}</tr>`;
-      $("fichas").innerHTML = `<li class="ficha vacia">${estado("Ningún registro de este vehículo coincide con los filtros.")}</li>`;
-      return;
-    }
-
-    $("tbody").innerHTML = filas.map(filaTabla).join("");
-    $("fichas").innerHTML = filas.map(ficha).join("");
+  // Escala "redonda" para el eje: pasos de 1, 2, 2,5 o 5 por potencia de 10.
+  function pasoRedondo(rango, divisiones) {
+    const bruto = Math.max(1, rango) / divisiones;
+    const mag = Math.pow(10, Math.floor(Math.log10(bruto)));
+    const n = bruto / mag;
+    return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 2.5 ? 2.5 : n <= 5 ? 5 : 10) * mag;
   }
 
-  function filaTabla(c) {
+  // El gráfico se dibuja al ancho real del contenedor (texto siempre legible).
+  function graficoKm(v, ancho) {
+    const pts = v.cambios.filter((c) => !isNaN(c.ms) && c.km != null);
+    if (pts.length < 2) return `<p class="grafico-vacio">Hacen falta al menos dos cambios con fecha y kilometraje para dibujar el gráfico.</p>`;
+    const W = Math.round(Math.max(320, Math.min(1000, ancho || 760)));
+    const H = W < 520 ? 210 : 250;
+    const x0 = 58, x1 = W - 34, y0 = H - 40, y1 = 28;
+    const t0 = pts[0].ms, t1 = pts[pts.length - 1].ms;
+    const kms = pts.map((p) => p.km);
+    const paso = pasoRedondo(Math.max(...kms) - Math.min(...kms), 3);
+    const kmin = Math.floor(Math.min(...kms) / paso) * paso;
+    let kmax = Math.ceil(Math.max(...kms) / paso) * paso;
+    if (kmax === kmin) kmax = kmin + paso;
+    const marcas = [];
+    for (let m = kmin; m <= kmax + 1e-6; m += paso) marcas.push(m);
+    const X = (ms) => (t1 === t0 ? (x0 + x1) / 2 : x0 + ((ms - t0) / (t1 - t0)) * (x1 - x0));
+    const Y = (km) => y0 - ((km - kmin) / (kmax - kmin)) * (y0 - y1);
+    const fmtEje = (n) => (n >= 1000 ? `${(n / 1000).toLocaleString("es-AR", { maximumFractionDigits: 1 })} mil` : fmtNum(Math.round(n)));
+    // Etiquetas de fecha y de km sin superponerse
+    const maxEtiq = Math.max(2, Math.floor((x1 - x0) / 80));
+    const cada = Math.ceil(pts.length / maxEtiq);
+    const conEtiq = pts.filter((_, i) => i % cada === 0 || i === pts.length - 1);
+    const linea = pts.map((p) => `${X(p.ms).toFixed(1)},${Y(p.km).toFixed(1)}`).join(" ");
+    const desc = `Kilometraje de ${v.dominio}: de ${fmtNum(pts[0].km)} km (${fmtFecha(pts[0].r.fecha_cambio)}) a ${fmtNum(pts[pts.length - 1].km)} km (${fmtFecha(pts[pts.length - 1].r.fecha_cambio)}).`;
+    return `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(desc)}">
+      ${marcas.map((m) => `<line class="eje" x1="${x0}" x2="${x1}" y1="${Y(m).toFixed(1)}" y2="${Y(m).toFixed(1)}"/><text class="lbl-eje" x="${x0 - 8}" y="${(Y(m) + 4).toFixed(1)}" text-anchor="end">${fmtEje(m)}</text>`).join("")}
+      <polyline class="linea" points="${linea}"/>
+      ${pts.map((p) => {
+        const rev = aRevisarDe(p).length > 0;
+        return `<circle class="pt${rev ? " rev" : ""}" cx="${X(p.ms).toFixed(1)}" cy="${Y(p.km).toFixed(1)}" r="${rev ? 7 : 5}"><title>${esc(fmtFecha(p.r.fecha_cambio))}: ${fmtNum(p.km)} km${rev ? " · para revisar" : ""}</title></circle>`;
+      }).join("")}
+      ${conEtiq.map((p) => `<text class="lbl-pt" x="${X(p.ms).toFixed(1)}" y="${(Y(p.km) - 12).toFixed(1)}" text-anchor="${p === pts[0] ? "start" : p === pts[pts.length - 1] ? "end" : "middle"}">${fmtNum(p.km)}</text>`).join("")}
+      ${conEtiq.map((p) => `<text class="lbl-eje" x="${X(p.ms).toFixed(1)}" y="${H - 12}" text-anchor="${p === pts[0] ? "start" : p === pts[pts.length - 1] ? "end" : "middle"}">${fmtMesAnio(p.ms)}</text>`).join("")}
+    </svg>`;
+  }
+
+  // Al cambiar el ancho de la ventana se vuelve a dibujar el gráfico.
+  let anchoGrafico = 0;
+  function dibujarGrafico(v) {
+    const cont = $("hist-grafico");
+    anchoGrafico = cont.clientWidth - 28;
+    cont.innerHTML = graficoKm(v, anchoGrafico);
+  }
+  let tResize = null;
+  window.addEventListener("resize", () => {
+    clearTimeout(tResize);
+    tResize = setTimeout(() => {
+      const v = state.vista === "ficha" && state.sel && state.vehiculos.get(state.sel);
+      if (v && Math.abs($("hist-grafico").clientWidth - 28 - anchoGrafico) > 8) dibujarGrafico(v);
+    }, 150);
+  });
+
+  function filaCambio(c) {
     const r = c.r;
     const ps = problemasDe(c);
     const nivel = ps.some((p) => p.nivel === "error") ? "error" : ps.some((p) => p.nivel === "revisar") ? "revisar" : "";
@@ -497,33 +604,25 @@
       <tr class="${nivel ? "fila-" + nivel : ""}">
         <td class="fecha" title="${r.created_at ? "Cargado el " + esc(fmtFechaHora(r.created_at)) : ""}">${esc(fmtFecha(r.fecha_cambio))}</td>
         <td class="num km">${c.km != null ? fmtNum(c.km) : '<span class="nd">Sin dato</span>'}</td>
-        <td class="num delta">${deltaHtml(c)}</td>
-        <td class="neum"><strong>${esc(r.marca_neumatico) || '<span class="nd">—</span>'}</strong>${r.medida ? `<span class="sub">${esc(r.medida)}</span>` : ""}</td>
-        <td class="num">${r.cantidad ?? '<span class="nd">—</span>'}</td>
-        <td class="c">${siNo(r.alineacion)}</td>
-        <td class="c">${siNo(r.balanceo)}</td>
-        <td class="c">${siNo(r.rotacion)}</td>
-        <td class="c">${siNo(r.valvulas)}</td>
-        <td class="persona">${choferZona || '<span class="nd">—</span>'}${r.asignacion ? `<span class="sub" title="Asignación">${esc(r.asignacion)}</span>` : ""}</td>
-        <td class="obs">${r.observaciones ? esc(r.observaciones) : '<span class="nd">—</span>'}</td>
-        <td class="rev">${tagsHtml(ps) || '<span class="ok-txt" title="Sin observaciones de consistencia">—</span>'}</td>
+        <td class="num">${deltaHtml(c)}</td>
+        <td>${esc(r.marca_neumatico) || '<span class="nd">—</span>'}${r.medida || r.cantidad != null ? `<small>${[r.medida && esc(r.medida), r.cantidad != null && `${r.cantidad} u.`].filter(Boolean).join(" · ")}</small>` : ""}</td>
+        <td>${serviciosHtml(r, true)}</td>
+        <td class="persona">${choferZona || '<span class="nd">—</span>'}${r.asignacion ? `<small title="Asignación">${esc(r.asignacion)}</small>` : ""}</td>
+        <td class="obs">${r.observaciones ? `<span class="clamp" title="${esc(r.observaciones)}">${esc(r.observaciones)}</span>` : '<span class="nd">—</span>'}</td>
+        <td>${tagsHtml(ps) || '<span class="nd" title="Sin observaciones de consistencia">—</span>'}</td>
         <td class="acc">${pdfBotones(c, true)}</td>
       </tr>`;
   }
 
-  function ficha(c) {
+  function fichaCambio(c) {
     const r = c.r;
     const ps = problemasDe(c);
     const nivel = ps.some((p) => p.nivel === "error") ? "error" : ps.some((p) => p.nivel === "revisar") ? "revisar" : "";
     const neum = [r.medida && esc(r.medida), r.cantidad != null && `${r.cantidad} u.`].filter(Boolean).join(" · ");
     const det = [
-      ["Alineación", siNo(r.alineacion)],
-      ["Balanceo", siNo(r.balanceo)],
-      ["Rotación", siNo(r.rotacion)],
-      ["Válvulas", siNo(r.valvulas)],
       ["Chofer", esc(r.chofer) || '<span class="nd">—</span>'],
-      ["Zona", esc(r.zona) || '<span class="nd">—</span>'],
-      ["Asignación", esc(r.asignacion) || '<span class="nd">—</span>'],
+      ["Zona del reporte", esc(r.zona) || '<span class="nd">—</span>'],
+      ["Asignación", esc(r.asignacion) || '<span class="nd">—</span>', true],
       ["Observaciones", esc(r.observaciones) || '<span class="nd">—</span>', true],
       ["Archivo original", esc(r.archivo_origen) || '<span class="nd">—</span>', true],
       ["Cargado el", esc(fmtFechaHora(r.created_at)) || '<span class="nd">—</span>', true],
@@ -538,11 +637,12 @@
           <div><span class="lbl">Kilometraje</span><strong>${c.km != null ? fmtNum(c.km) + " km" : '<span class="nd">Sin dato</span>'}</strong></div>
           <div><span class="lbl">Desde el anterior</span><strong>${deltaHtml(c)}</strong></div>
         </div>
-        <div class="ficha-neum">
+        <div>
           <span class="lbl">Neumático</span>
           <span><strong>${esc(r.marca_neumatico) || '<span class="nd">Sin dato</span>'}</strong>${neum ? ` <span class="muted">· ${neum}</span>` : ""}</span>
         </div>
-        <div class="ficha-acc">${pdfBotones(c)}</div>
+        ${serviciosHtml(r)}
+        ${pdfBotones(c)}
         <details class="ficha-det">
           <summary>Ver detalle</summary>
           <dl>${det.map(([k, val, full]) => `<div${full ? ' class="full"' : ""}><dt>${k}</dt><dd>${val}</dd></div>`).join("")}</dl>
@@ -550,24 +650,155 @@
       </li>`;
   }
 
-  function renderTodo() {
-    renderKpis();
-    renderPatentes();
-    renderHistorial();
-    actualizarControles();
+  function renderFicha() {
+    const v = state.sel && state.vehiculos.get(state.sel);
+    if (state.vista !== "ficha" || !v) return;
+    const p = v.pol;
+    const u = v.ultimo?.r;
+
+    $("hist-plate").firstElementChild.textContent = v.dominio;
+    $("hist-marca").innerHTML = p?.marca
+      ? `${esc(p.marca)}${p.anio ? `<small>${esc(p.anio)}</small>` : ""}`
+      : `<span class="aviso-poliza">${state.polizaError ? "Datos de póliza no disponibles" : "Esta patente no figura en la póliza"}</span>`;
+
+    const datos = [];
+    if (p) datos.push(["Zona", zonaHtml(p.zona)], ["Certificado", p.certificado ?? "—"]);
+    datos.push(
+      ["Chofer (último reporte)", esc(u?.chofer) || '<span class="nd">—</span>'],
+      ["Asignación", esc(u?.asignacion) || '<span class="nd">—</span>'],
+      ["Neumático actual", u?.marca_neumatico ? `${esc(u.marca_neumatico)}${u.medida ? " " + esc(u.medida) : ""}` : '<span class="nd">—</span>']
+    );
+    $("hist-datos").innerHTML = datos.map(([k, val]) => `<div><dt>${k}</dt><dd>${val}</dd></div>`).join("");
+
+    const kpis = [
+      ["Km en el último cambio", v.ultimoConKm ? `${fmtNum(v.ultimoConKm.km)}` : "—", v.ultimoConKm && v.ultimoConKm !== v.ultimo ? `Del ${fmtFecha(v.ultimoConKm.r.fecha_cambio)}` : "km"],
+      ["Último cambio", u ? fmtFecha(u.fecha_cambio) : "—", haceTxt(v.dias)],
+      ["Km promedio entre cambios", v.kmProm != null ? fmtNum(v.kmProm) : "—", v.kmProm != null ? "km" : "Faltan datos"],
+      ["Días promedio entre cambios", v.diasProm != null ? fmtNum(v.diasProm) : "—", plural(v.cambios.length, "cambio registrado", "cambios registrados")],
+    ];
+    const cls = v.edad === "vencido" ? " bad" : v.aRevisar ? "" : "";
+    $("hist-kpis").innerHTML = kpis
+      .map(([l, val, sub], i) => `<div class="kpi${i === 1 ? cls : ""}"><span class="kpi-lbl">${l}</span><strong class="kpi-val">${val}</strong><span class="kpi-sub">${esc(sub)}</span></div>`)
+      .join("");
+
+    dibujarGrafico(v);
+
+    const conPdf = [...v.cambios].reverse().find((c) => c.r.pdf_path && !isNaN(c.ms));
+    const btnUlt = $("btn-ultimo-pdf");
+    btnUlt.disabled = !conPdf;
+    btnUlt.dataset.id = conPdf ? conPdf.r.id : "";
+    btnUlt.title = conPdf ? `Abre el PDF del ${fmtFecha(conPdf.r.fecha_cambio)}` : "Ningún cambio de este vehículo tiene PDF";
+
+    $("btn-orden").innerHTML = `${ico("sort")}${state.asc ? "Más antiguo primero" : "Más reciente primero"}`;
+    $("btn-orden").setAttribute("aria-label", `Orden por fecha: ${state.asc ? "más antiguo primero" : "más reciente primero"}. Cambiar orden`);
+
+    const filas = state.asc ? v.cambios : [...v.cambios].reverse();
+    $("tbody").innerHTML = filas.map(filaCambio).join("");
+    $("fichas").innerHTML = filas.map(fichaCambio).join("");
   }
 
-  function actualizarControles() {
-    const n = filtrosActivos();
-    $("filtros-n").textContent = n;
-    $("filtros-n").hidden = !n;
-    $("filtros-limpiar").disabled = !n;
-    $("buscar-limpiar").hidden = !state.filtro;
+  /* ---------------------------------------------------------------
+     Vistas y navegación
+     --------------------------------------------------------------- */
+  function mostrarVista() {
+    const v = state.vista;
+    $("vista-lista").hidden = v !== "lista";
+    $("vista-revisar").hidden = v !== "revisar";
+    $("vista-ficha").hidden = v !== "ficha";
+    $("t-lista").setAttribute("aria-selected", String(v === "lista" || v === "ficha"));
+    $("t-revisar").setAttribute("aria-selected", String(v === "revisar"));
+  }
+
+  function renderTodo() {
+    mostrarVista();
+    renderKpis();
+    renderLista();
+    renderBulk();
+    renderRevisar();
+    renderFicha();
+  }
+
+  let vistaPrevia = "lista";
+  function seleccionar(dominio, { historial = true } = {}) {
+    if (!state.vehiculos.has(dominio)) return;
+    if (state.vista !== "ficha") vistaPrevia = state.vista;
+    state.sel = dominio;
+    state.vista = "ficha";
+    if (historial) {
+      const hash = "#" + encodeURIComponent(dominio);
+      if (location.hash !== hash) {
+        if (location.hash) history.replaceState({ p: dominio }, "", hash);
+        else history.pushState({ p: dominio }, "", hash);
+      }
+    }
+    renderTodo();
+    window.scrollTo({ top: 0 });
+    $("hist-titulo").focus({ preventScroll: true });
+  }
+
+  function irA(vista, { historial = true } = {}) {
+    const desde = state.sel;
+    state.vista = vista;
+    if (historial && location.hash) history.pushState(null, "", location.pathname + location.search);
+    renderTodo();
+    if (vista === "lista" && desde) {
+      const fila = $("tb").querySelector(`tr[data-dominio="${CSS.escape(desde)}"]`);
+      if (fila) {
+        fila.scrollIntoView({ block: "center" });
+        fila.querySelector("button")?.focus({ preventScroll: true });
+        return;
+      }
+    }
+    window.scrollTo({ top: 0 });
+  }
+
+  function volver() {
+    // Si se llegó desde la lista con la app, Atrás del navegador hace lo mismo.
+    if (history.state && history.state.p) history.back();
+    else irA(vistaPrevia === "revisar" ? "revisar" : "lista");
+  }
+
+  window.addEventListener("popstate", () => {
+    const dom = decodeURIComponent(location.hash.slice(1));
+    if (dom && state.vehiculos.has(dom)) seleccionar(dom, { historial: false });
+    else irA(vistaPrevia === "revisar" ? "revisar" : "lista", { historial: false });
+  });
+
+  /* ---------------------------------------------------------------
+     Exportar (CSV que Excel abre directamente)
+     --------------------------------------------------------------- */
+  function exportar() {
+    const base = state.marcados.size
+      ? vehiculosVisibles().filter((v) => state.marcados.has(v.dominio))
+      : vehiculosVisibles();
+    const lista = state.marcados.size && !base.length ? [...state.marcados].map((d) => state.vehiculos.get(d)).filter(Boolean) : base;
+    if (!lista.length) return toast("No hay vehículos para exportar", true);
+    const cab = ["Certificado", "Patente", "Marca completa", "Año", "Zona", "Último cambio", "Días desde el último cambio",
+      "Km en el último cambio", "Neumático", "Medida", "Cambios", "Km promedio entre cambios", "Registros para revisar"];
+    const filas = lista.map((v) => {
+      const u = v.ultimo?.r;
+      return [v.pol?.certificado ?? "", v.dominio, v.pol?.marca ?? "", v.pol?.anio ?? "", v.pol?.zona ?? "",
+        u ? fmtFecha(u.fecha_cambio) : "", v.dias ?? "", v.ultimoConKm?.km ?? "", u?.marca_neumatico ?? "", u?.medida ?? "",
+        v.cambios.length, v.kmProm ?? "", v.aRevisar];
+    });
+    const celda = (x) => {
+      const s = String(x ?? "");
+      return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = "\uFEFF" + [cab, ...filas].map((f) => f.map(celda).join(";")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `neumaticos_vehiculos_${new Date().toLocaleDateString("en-CA", { timeZone: "America/Argentina/Buenos_Aires" })}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(`Exportados ${plural(lista.length, "vehículo", "vehículos")}`);
   }
 
   /* ---------------------------------------------------------------
      PDF: se abre en una pestaña nueva con un enlace temporal firmado.
-     Funciona igual en PC y celular, y la app conserva su estado.
      --------------------------------------------------------------- */
   const buscarCambio = (id) => {
     for (const v of state.vehiculos.values()) {
@@ -589,7 +820,7 @@
         try {
           win.opener = null;
           win.document.title = "Abriendo PDF…";
-          win.document.body.innerHTML = '<p style="font:16px system-ui,sans-serif;padding:24px;color:#263431">Abriendo PDF…</p>';
+          win.document.body.innerHTML = '<p style="font:16px system-ui,sans-serif;padding:24px;color:#1C2B30">Abriendo PDF…</p>';
         } catch (_) { /* sin acceso al documento: no importa */ }
       }
     }
@@ -601,10 +832,10 @@
     if (error || !data?.signedUrl) {
       if (win) win.close();
       state.pdfFallidos.add(c.r.id);
-      renderHistorial();
+      renderTodo();
       return toast("No se pudo abrir el PDF: " + mensajeError(error || "enlace vacío"), true);
     }
-    if (state.pdfFallidos.delete(c.r.id)) renderHistorial();
+    if (state.pdfFallidos.delete(c.r.id)) renderTodo();
 
     if (descargar) {
       const a = document.createElement("a");
@@ -616,7 +847,6 @@
     } else if (win) {
       win.location.replace(data.signedUrl);
     } else {
-      // El navegador bloqueó la pestaña: se ofrece el enlace
       toast(`El navegador bloqueó la ventana. <a href="${esc(data.signedUrl)}" target="_blank" rel="noopener">Abrir el PDF</a>`, false, true);
     }
   }
@@ -625,67 +855,119 @@
      Eventos de la interfaz
      --------------------------------------------------------------- */
   $("buscar").addEventListener("input", (e) => {
-    state.filtro = e.target.value;
-    renderPatentes();
-    actualizarControles();
+    state.q = e.target.value;
+    renderLista();
+    renderKpis();
   });
-  function limpiarBusqueda() {
-    state.filtro = "";
-    $("buscar").value = "";
-    renderPatentes();
-    actualizarControles();
-    $("buscar").focus();
-  }
-  $("buscar-limpiar").addEventListener("click", limpiarBusqueda);
-
-  $("orden-patentes").addEventListener("change", (e) => {
-    state.ordenPat = e.target.value;
-    renderPatentes();
+  $("f-estado").addEventListener("change", (e) => {
+    state.fEstado = e.target.value;
+    renderLista();
+    renderKpis();
   });
-
-  const inputsFiltro = { desde: "f-desde", hasta: "f-hasta", marca: "f-marca", zona: "f-zona", chofer: "f-chofer" };
-  for (const [k, id] of Object.entries(inputsFiltro)) {
-    $(id).addEventListener("change", (e) => {
-      state.filtros[k] = e.target.value;
-      renderPatentes();
-      renderHistorial();
-      actualizarControles();
-    });
-  }
+  $("f-zona").addEventListener("change", (e) => {
+    state.fZona = e.target.value;
+    renderLista();
+    renderKpis();
+  });
   function limpiarFiltros() {
-    for (const [k, id] of Object.entries(inputsFiltro)) {
-      state.filtros[k] = "";
-      $(id).value = "";
-    }
-    renderPatentes();
-    renderHistorial();
-    actualizarControles();
+    state.q = state.fEstado = state.fZona = "";
+    $("buscar").value = "";
+    $("f-estado").value = "";
+    $("f-zona").value = "";
+    renderLista();
+    renderKpis();
   }
   $("filtros-limpiar").addEventListener("click", limpiarFiltros);
 
-  // Filtros: abiertos en PC, plegados en celular
-  const ajustarFiltros = () => ($("filtros").open = !mqMovil.matches);
-  mqMovil.addEventListener("change", ajustarFiltros);
-  ajustarFiltros();
+  // Indicadores: filtran la lista
+  document.querySelectorAll(".kpi[data-estado]").forEach((b) =>
+    b.addEventListener("click", () => {
+      if (b.dataset.estado === "") limpiarFiltros();
+      else {
+        state.fEstado = state.fEstado === b.dataset.estado ? "" : b.dataset.estado;
+        $("f-estado").value = state.fEstado;
+        renderLista();
+        renderKpis();
+      }
+      $("panel-lista").scrollIntoView({ block: "start", behavior: "smooth" });
+    })
+  );
+
+  // Orden por columna
+  const ordenar = (k) => {
+    state.sort = state.sort.k === k ? { k, dir: -state.sort.dir } : { k, dir: ["ultimo", "km", "cambios"].includes(k) ? -1 : 1 };
+    renderLista();
+  };
+  document.querySelectorAll("#tabla-veh th[data-sort]").forEach((th) => {
+    th.addEventListener("click", () => ordenar(th.dataset.sort));
+    th.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        ordenar(th.dataset.sort);
+      }
+    });
+  });
+
+  // Selección para exportar
+  $("sel-todos").addEventListener("change", (e) => {
+    const vis = vehiculosVisibles();
+    vis.forEach((v) => (e.target.checked ? state.marcados.add(v.dominio) : state.marcados.delete(v.dominio)));
+    renderLista();
+    renderBulk();
+  });
+  $("tb").addEventListener("change", (e) => {
+    if (!e.target.classList.contains("marca-chk")) return;
+    const dom = e.target.closest("tr").dataset.dominio;
+    if (e.target.checked) state.marcados.add(dom);
+    else state.marcados.delete(dom);
+    e.target.closest("tr").classList.toggle("sel", e.target.checked);
+    renderBulk();
+    const vis = vehiculosVisibles();
+    $("sel-todos").checked = vis.length > 0 && vis.every((v) => state.marcados.has(v.dominio));
+    $("sel-todos").indeterminate = !$("sel-todos").checked && vis.some((v) => state.marcados.has(v.dominio));
+  });
+
+  // Clic en una fila de la lista (fuera de casillas y botones) abre la ficha
+  ["tb", "tb-rev"].forEach((id) =>
+    $(id).addEventListener("click", (e) => {
+      if (e.target.closest("input, button, a, label")) return;
+      const tr = e.target.closest("tr[data-dominio]");
+      if (tr) seleccionar(tr.dataset.dominio);
+    })
+  );
 
   document.addEventListener("click", (e) => {
-    const b = e.target.closest("[data-accion], .pcard");
+    const b = e.target.closest("[data-accion]");
     if (!b) return;
-    if (b.classList.contains("pcard")) return seleccionar(b.dataset.dominio);
     switch (b.dataset.accion) {
+      case "abrir": return seleccionar(b.dataset.dominio);
       case "ver": return abrirPdf(buscarCambio(b.dataset.id));
       case "descargar": return abrirPdf(buscarCambio(b.dataset.id), true);
       case "reintentar": return cargarDatos();
-      case "limpiar-busqueda": return limpiarBusqueda();
       case "limpiar-filtros": return limpiarFiltros();
+      case "exportar": return exportar();
+      case "deseleccionar":
+        state.marcados.clear();
+        renderLista();
+        return renderBulk();
     }
   });
 
+  $("t-lista").addEventListener("click", () => irA("lista"));
+  $("t-revisar").addEventListener("click", () => irA("revisar"));
+  document.querySelector(".tabs").addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const otra = e.target.id === "t-lista" ? $("t-revisar") : $("t-lista");
+    otra.focus();
+    otra.click();
+  });
+
+  $("btn-exportar").addEventListener("click", exportar);
   $("btn-orden").addEventListener("click", () => {
     state.asc = !state.asc;
-    renderHistorial();
+    renderFicha();
   });
-  $("btn-volver").addEventListener("click", volverAlListado);
+  $("btn-volver").addEventListener("click", volver);
   $("btn-ultimo-pdf").addEventListener("click", (e) => abrirPdf(buscarCambio(e.currentTarget.dataset.id)));
 
   /* ---------------------------------------------------------------
@@ -882,7 +1164,7 @@
 
   function estadoBoton(txt) {
     btnReg.disabled = !!txt;
-    btnReg.querySelector("span").textContent = txt || "Registros";
+    btnReg.querySelector("span").textContent = txt || "Cargar PDF";
   }
 
   async function procesarArchivos(lista) {
@@ -979,7 +1261,7 @@
       return;
     }
     await cargarDatos();
-    // Si se entra con una patente en la dirección (#AB500CM), se abre su historial
+    // Si se entra con una patente en la dirección (#AB500CM), se abre su ficha
     const dom = decodeURIComponent(location.hash.slice(1));
     if (dom && state.vehiculos.has(dom)) seleccionar(dom, { historial: false });
   }
