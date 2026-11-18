@@ -23,6 +23,7 @@ manifest.webmanifest  Nombre, colores e íconos de la app instalada
 icons/                Íconos
 supabase/schema.sql   Tablas, vista, validaciones, políticas y bucket  <-- ejecutar
 supabase/vehiculos_poliza.sql  Datos de la póliza para la lista      <-- ejecutar
+supabase/vehiculo_pdf.sql      Columnas de marca/modelo/año del PDF   <-- ejecutar
 supabase/diagnostico_poliza.sql  Diagnóstico si no aparecen los datos de la póliza
 vercel.json           Configuración de Vercel
 ```
@@ -32,7 +33,8 @@ vercel.json           Configuración de Vercel
 ### 1. Supabase
 1. Crear un proyecto en https://supabase.com
 2. **SQL Editor > New query**, pegar el contenido de `supabase/schema.sql` y ejecutar.
-   Después hacer lo mismo con `supabase/vehiculos_poliza.sql` (datos de la póliza).
+   Después hacer lo mismo con `supabase/vehiculos_poliza.sql` (datos de la póliza) y con
+   `supabase/vehiculo_pdf.sql` (marca, modelo y año del vehículo según el PDF).
 3. **Project Settings > API**: copiar *Project URL* y *anon public key*.
 
 ### 2. Configurar la app
@@ -79,7 +81,14 @@ patente **que tenga al menos un cambio registrado**, la descripción del vehícu
 año del último período de la póliza en que figura, y la zona de la base de zonas.
 
 - Las patentes de la póliza sin cambios registrados no aparecen.
-- Las patentes con cambios que no figuran en la póliza aparecen como «Sin datos de póliza».
+- Si la patente no figura en la póliza, o la póliza no tiene ese dato, se usan los datos del
+  PDF más reciente: «Marca - Modelo» y año del vehículo, y la zona del reporte. Esos datos
+  llevan la etiqueta **PDF**. La zona del PDF es texto libre y puede no coincidir con los
+  nombres de zona de la póliza.
+- Al cargar un PDF, marca, modelo y año del vehículo se leen y se pueden corregir en el
+  formulario de revisión. Para los registros cargados antes, el botón **Completar desde los
+  PDF** (arriba de la lista) vuelve a leer el PDF más reciente de cada vehículo sin datos de
+  póliza y guarda solo esas tres columnas; no modifica ningún otro dato.
 - Las patentes se cruzan sin espacios ni guiones y en mayúsculas.
 - La función no expone valores, premios ni centros de costo; las tablas de pólizas siguen
   accesibles solo con usuario logueado.
