@@ -4,6 +4,7 @@
    - Lista de vehículos con los datos de la póliza (descripción del vehículo
      y zona), solo para patentes con cambios registrados
    - Ficha por vehículo con gráfico de kilometraje e historial
+   - Si la patente no figura en la póliza, marca, modelo, año y zona salen del PDF
    - Aviso en pantalla cuando faltan los datos de la póliza
    - Lectura de PDF en el navegador (pdf.js) y controles de consistencia
    ===================================================================== */
@@ -31,6 +32,9 @@
     poliza: new Map(),      // dominio -> { marca, anio, zona, periodo_id, vigencia_hasta }
     polizaError: null,      // la función de póliza todavía no existe o falló
     polizaCodigo: null,     // código del error (PGRST202 = la función no existe)
+    colsVehiculo: null,     // la tabla tiene las columnas del vehículo del PDF (null = no se sabe)
+    completando: null,      // { i, n } mientras se leen los PDF para completar datos
+    intentados: new Set(),  // patentes cuyo PDF ya se leyó en esta sesión sin éxito
     vehiculos: new Map(),   // dominio -> { dominio, cambios[], ultimo, ultimoConKm, aRevisar, pol, dias, ... }
     cargando: true,
     errorCarga: null,
@@ -157,6 +161,7 @@
     const [rc, rp] = await Promise.allSettled([leerCambios(), leerPoliza()]);
     if (rc.status === "fulfilled") {
       state.registros = rc.value;
+      if (rc.value.length) state.colsVehiculo = "marca_vehiculo" in rc.value[0];
     } else {
       state.errorCarga = mensajeError(rc.reason);
     }
@@ -261,13 +266,28 @@
       const dias = ultimo ? Math.round((hoy - ultimo.ms) / DIA) : null;
       const edad = dias == null ? "nd" : dias > DIAS_VENCIDO ? "vencido" : dias > DIAS_ALERTA ? "alerta" : "ok";
 
+      // Datos del vehículo: primero la póliza; si falta, el PDF más reciente que los tenga
+      const pol = state.poliza.get(dominio) || null;
+      const recientes = [...cambios].reverse();
+      const rVeh = recientes.find((c) => c.r.marca_vehiculo || c.r.modelo_vehiculo)?.r;
+      const descPdf = rVeh ? [rVeh.marca_vehiculo, rVeh.modelo_vehiculo].map((x) => String(x || "").trim()).filter(Boolean).join(" - ") : "";
+      const anioPdf = recientes.find((c) => c.r.anio_vehiculo)?.r.anio_vehiculo || "";
+      const zonaPdf = recientes.find((c) => c.r.zona)?.r.zona || "";
+      const descDePdf = !pol?.marca && !!descPdf;
+
       vehiculos.set(dominio, {
         dominio,
+        pol,
+        desc: pol?.marca || descPdf || null,
+        descPdf: descDePdf,
+        anio: (pol?.marca ? pol.anio : anioPdf || pol?.anio) || null,
+        zona: pol?.zona || zonaPdf || null,
+        zonaPdf: !pol?.zona && !!zonaPdf,
+        tieneDatosPdf: !!descPdf,
         cambios,
         ultimo,
         ultimoConKm,
         aRevisar: cambios.filter((c) => c.problemas.some((x) => x.nivel !== "falta")).length,
-        pol: state.poliza.get(dominio) || null,
         dias,
         edad,
         kmProm: prom(tramosKm),
@@ -292,7 +312,7 @@
     const cnt = new Map();
     let sinZona = 0;
     for (const v of state.vehiculos.values()) {
-      const z = v.pol?.zona;
+      const z = v.zona;
       if (z) cnt.set(z, (cnt.get(z) || 0) + 1);
       else sinZona++;
     }
@@ -322,10 +342,10 @@
     const qDom = limpiarDominio(state.q);
     const lista = [...state.vehiculos.values()].filter((v) => {
       if (!cumpleEstado(v, state.fEstado)) return false;
-      if (state.fZona === "__none" ? v.pol?.zona : state.fZona && v.pol?.zona !== state.fZona) return false;
+      if (state.fZona === "__none" ? v.zona : state.fZona && v.zona !== state.fZona) return false;
       if (!q) return true;
       if (qDom && v.dominio.includes(qDom)) return true;
-      const txt = [v.pol?.marca, v.pol?.anio, v.pol?.zona].filter(Boolean).join(" ").toLowerCase();
+      const txt = [v.desc, v.anio, v.zona].filter(Boolean).join(" ").toLowerCase();
       return txt.includes(q);
     });
 
@@ -337,8 +357,8 @@
     const txt = (a, b) => String(a).localeCompare(String(b), "es", { numeric: true });
     const clave = {
       patente: (v) => v.dominio,
-      marca: (v) => v.pol?.marca || null,
-      zona: (v) => v.pol?.zona || null,
+      marca: (v) => v.desc || null,
+      zona: (v) => v.zona || null,
       ultimo: (v) => (v.ultimo ? v.ultimo.ms : null),
       km: (v) => (v.ultimoConKm ? v.ultimoConKm.km : null),
       cambios: (v) => v.cambios.length,
@@ -363,16 +383,21 @@
     return `<div class="edad ${v.edad}"><span class="barra" aria-hidden="true"><i style="width:${pct}%"></i></span><span>${haceTxt(v.dias)}</span></div>`;
   }
 
+  const TAG_PDF = '<span class="fuente-pdf" title="No figura en la póliza: dato tomado del último PDF del reporte">PDF</span>';
+  const descHtml = (v) =>
+    v.desc
+      ? `${esc(v.desc)}${v.descPdf ? TAG_PDF : ""}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`
+      : `<span class="nd">${v.pol ? "Sin descripción" : "Sin datos de póliza ni del PDF"}</span>${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`;
+
   function filaVehiculo(v) {
-    const p = v.pol;
     const u = v.ultimo?.r;
     const marcado = state.marcados.has(v.dominio);
     const cls = [marcado ? "sel" : "", v.aRevisar ? "revisar" : ""].filter(Boolean).join(" ");
     return `<tr data-dominio="${esc(v.dominio)}" class="${cls}">
       <td class="chk"><input type="checkbox" class="marca-chk" ${marcado ? "checked" : ""} aria-label="Seleccionar ${esc(v.dominio)}"></td>
       <td class="pat">${plate(v.dominio)}</td>
-      <td class="marca">${p?.marca ? esc(p.marca) : '<span class="nd">Sin datos de póliza</span>'}${p?.anio ? `<small>${esc(p.anio)}</small>` : ""}</td>
-      <td class="zn">${p ? zonaHtml(p.zona) : '<span class="zona none">—</span>'}</td>
+      <td class="marca">${descHtml(v)}</td>
+      <td class="zn">${zonaHtml(v.zona)}${v.zonaPdf ? TAG_PDF : ""}</td>
       <td class="ult"><span class="fecha">${u ? esc(fmtFecha(u.fecha_cambio)) : ""}</span>${edadHtml(v)}</td>
       <td class="num km">${v.ultimoConKm ? fmtNum(v.ultimoConKm.km) : '<span class="nd">Sin dato</span>'}</td>
       <td class="neum">${u?.marca_neumatico ? esc(u.marca_neumatico) : '<span class="nd">—</span>'}${u?.medida || u?.cantidad != null ? `<small>${[u.medida && esc(u.medida), u.cantidad != null && `${u.cantidad} u.`].filter(Boolean).join(" · ")}</small>` : ""}</td>
@@ -404,28 +429,92 @@
     );
   }
 
-  // Explica en pantalla por qué faltan los datos de la póliza.
+  const COLS_VEHICULO = ["marca_vehiculo", "modelo_vehiculo", "anio_vehiculo"];
+
+  // Vehículos sin descripción en la póliza a los que todavía no se les leyó el PDF
+  function pendientesPdf() {
+    if (state.colsVehiculo !== true) return [];
+    return [...state.vehiculos.values()].filter(
+      (v) => !v.pol?.marca && !v.tieneDatosPdf && !state.intentados.has(v.dominio) && v.cambios.some((c) => c.r.pdf_path)
+    );
+  }
+
+  // Explica en pantalla por qué faltan datos del vehículo y ofrece completarlos.
   function renderAviso() {
     const el = $("aviso-poliza");
     const vs = [...state.vehiculos.values()];
-    const sinPol = vs.filter((v) => !v.pol).length;
-    let html = "", tipo = "info";
-    if (state.cargando || state.errorCarga || !vs.length) html = "";
-    else if (state.polizaError) {
-      tipo = "error";
-      const falta = state.polizaCodigo === "PGRST202" || /could not find the function/i.test(state.polizaError);
-      html = falta
-        ? "<strong>Falta crear la función de la póliza.</strong> Ejecutá <code>supabase/vehiculos_poliza.sql</code> en el SQL Editor de Supabase para ver la descripción del vehículo y la zona."
-        : `<strong>No se pudieron leer los datos de la póliza.</strong> ${esc(state.polizaError)}. Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase para ver la causa.`;
-    } else if (sinPol === vs.length) {
-      tipo = "error";
-      html = `<strong>La póliza no devolvió datos para ninguna de las ${fmtNum(vs.length)} patentes con cambios.</strong> Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase: indica si las patentes no coinciden o si falta permiso de lectura.`;
-    } else if (sinPol) {
-      html = `${plural(sinPol, "patente con cambios no figura", "patentes con cambios no figuran")} en la póliza. <button class="linkbtn" type="button" data-accion="ver-sinpoliza">Ver cuáles</button>`;
+    const msgs = [];
+    let tipo = "info";
+    if (!state.cargando && !state.errorCarga && vs.length) {
+      const sinPol = vs.filter((v) => !v.pol).length;
+      if (state.polizaError) {
+        tipo = "error";
+        const falta = state.polizaCodigo === "PGRST202" || /could not find the function/i.test(state.polizaError);
+        msgs.push(falta
+          ? "<strong>Falta crear la función de la póliza.</strong> Ejecutá <code>supabase/vehiculos_poliza.sql</code> en el SQL Editor de Supabase. Mientras tanto se muestran los datos del PDF."
+          : `<strong>No se pudieron leer los datos de la póliza.</strong> ${esc(state.polizaError)}. Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase para ver la causa.`);
+      } else if (sinPol === vs.length) {
+        tipo = "error";
+        msgs.push(`<strong>La póliza no devolvió datos para ninguna de las ${fmtNum(vs.length)} patentes con cambios.</strong> Se muestran los datos del PDF. Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase para ver la causa.`);
+      } else if (sinPol) {
+        msgs.push(`${plural(sinPol, "patente no figura", "patentes no figuran")} en la póliza: se muestran marca, modelo y zona del último PDF, marcados <span class="fuente-pdf">PDF</span>. <button class="linkbtn" type="button" data-accion="ver-sinpoliza">Ver cuáles</button>`);
+      }
+      if (state.completando) {
+        msgs.push(`Leyendo los PDF para completar marca y modelo… ${fmtNum(state.completando.i)} de ${fmtNum(state.completando.n)}`);
+      } else if (state.colsVehiculo === false && vs.some((v) => !v.pol?.marca)) {
+        tipo = "error";
+        msgs.push("Para guardar y mostrar marca y modelo del vehículo según el PDF, ejecutá <code>supabase/vehiculo_pdf.sql</code> en Supabase.");
+      } else {
+        const pend = pendientesPdf().length;
+        if (pend)
+          msgs.push(`${plural(pend, "vehículo sin datos de póliza todavía no tiene", "vehículos sin datos de póliza todavía no tienen")} marca y modelo leídos de su PDF. <button class="btn small" type="button" data-accion="completar-pdf">Completar desde los PDF</button>`);
+      }
     }
-    el.hidden = !html;
+    el.hidden = !msgs.length;
     el.className = "aviso-banda " + tipo;
-    el.innerHTML = html;
+    el.innerHTML = msgs.map((m) => `<span class="aviso-linea">${m}</span>`).join("");
+  }
+
+  // Lee el PDF más reciente de cada vehículo pendiente y guarda marca, modelo y año.
+  // Solo completa esas columnas: no modifica ningún otro dato del registro.
+  async function completarDesdePdf() {
+    const lista = pendientesPdf();
+    if (!lista.length || state.completando) return;
+    let ok = 0, sinDato = 0, err = 0;
+    state.completando = { i: 0, n: lista.length };
+    renderAviso();
+    for (const v of lista) {
+      state.completando.i++;
+      renderAviso();
+      const c = [...v.cambios].reverse().find((x) => x.r.pdf_path);
+      try {
+        const { data: blob, error } = await sb.storage.from(BUCKET).download(c.r.pdf_path);
+        if (error || !blob) throw error || new Error("PDF vacío");
+        const d = parsear(await extraerTexto(blob), c.r.archivo_origen || "");
+        const upd = {};
+        if (d.marca_vehiculo) upd.marca_vehiculo = d.marca_vehiculo;
+        if (d.modelo_vehiculo) upd.modelo_vehiculo = d.modelo_vehiculo;
+        if (/^\d{4}$/.test(d.anio_vehiculo || "")) upd.anio_vehiculo = d.anio_vehiculo;
+        if (!Object.keys(upd).length) {
+          sinDato++;
+          state.intentados.add(v.dominio);
+          continue;
+        }
+        const { error: e2 } = await sb.from(TABLA).update(upd).eq("id", c.r.id);
+        if (e2) throw e2;
+        ok++;
+      } catch (e) {
+        err++;
+        state.intentados.add(v.dominio);
+        console.warn("Completar desde PDF", v.dominio, e);
+      }
+    }
+    state.completando = null;
+    const partes = [`${plural(ok, "vehículo completado", "vehículos completados")}`];
+    if (sinDato) partes.push(`${fmtNum(sinDato)} PDF sin marca ni modelo legibles`);
+    if (err) partes.push(`${fmtNum(err)} con error`);
+    toast("Datos del PDF: " + partes.join(", "), err > 0 && !ok);
+    await cargarDatos();
   }
 
   function renderLista() {
@@ -475,7 +564,7 @@
     }
     tb.innerHTML = lista.map(filaVehiculo).join("");
     tf.innerHTML = `<tr><td colspan="5">${lista.length === total ? "Total" : "Subtotal"} ${plural(lista.length, "vehículo", "vehículos")}</td>
-      <td colspan="5" class="fuente">Vehículo y zona: póliza${state.polizaError ? " (no disponible)" : ""} · Solo vehículos con cambios registrados</td></tr>`;
+      <td colspan="5" class="fuente">Vehículo y zona: póliza${state.polizaError ? " (no disponible)" : ""}; si falta, último PDF (marcado PDF) · Solo vehículos con cambios registrados</td></tr>`;
   }
 
   function renderBulk() {
@@ -640,16 +729,15 @@
   function renderFicha() {
     const v = state.sel && state.vehiculos.get(state.sel);
     if (state.vista !== "ficha" || !v) return;
-    const p = v.pol;
     const u = v.ultimo?.r;
 
     $("hist-plate").firstElementChild.textContent = v.dominio;
-    $("hist-marca").innerHTML = p?.marca
-      ? `${esc(p.marca)}${p.anio ? `<small>${esc(p.anio)}</small>` : ""}`
-      : `<span class="aviso-poliza">${state.polizaError ? "Datos de póliza no disponibles" : "Esta patente no figura en la póliza"}</span>`;
+    $("hist-marca").innerHTML =
+      (v.desc ? `${esc(v.desc)}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}${v.descPdf ? TAG_PDF : ""}` : "") +
+      (!v.pol ? `<div><span class="aviso-poliza">${state.polizaError ? "Datos de póliza no disponibles" : "No figura en la póliza"}${v.desc ? ": datos del último PDF" : ""}</span></div>` : "");
 
     const datos = [];
-    if (p) datos.push(["Zona", zonaHtml(p.zona)]);
+    datos.push(["Zona", zonaHtml(v.zona) + (v.zonaPdf ? TAG_PDF : "")]);
     datos.push(
       ["Chofer (último reporte)", esc(u?.chofer) || '<span class="nd">—</span>'],
       ["Asignación", esc(u?.asignacion) || '<span class="nd">—</span>'],
@@ -755,11 +843,12 @@
       : vehiculosVisibles();
     const lista = state.marcados.size && !base.length ? [...state.marcados].map((d) => state.vehiculos.get(d)).filter(Boolean) : base;
     if (!lista.length) return toast("No hay vehículos para exportar", true);
-    const cab = ["Patente", "Vehículo", "Año", "Zona", "Último cambio", "Días desde el último cambio",
+    const cab = ["Patente", "Vehículo", "Año", "Zona", "Origen de vehículo y zona", "Último cambio", "Días desde el último cambio",
       "Km en el último cambio", "Neumático", "Medida", "Cambios", "Km promedio entre cambios", "Registros para revisar"];
     const filas = lista.map((v) => {
       const u = v.ultimo?.r;
-      return [v.dominio, v.pol?.marca ?? "", v.pol?.anio ?? "", v.pol?.zona ?? "",
+      return [v.dominio, v.desc ?? "", v.anio ?? "", v.zona ?? "",
+        v.pol ? (v.descPdf || v.zonaPdf ? "Póliza y PDF" : "Póliza") : v.desc || v.zona ? "PDF" : "",
         u ? fmtFecha(u.fecha_cambio) : "", v.dias ?? "", v.ultimoConKm?.km ?? "", u?.marca_neumatico ?? "", u?.medida ?? "",
         v.cambios.length, v.kmProm ?? "", v.aRevisar];
     });
@@ -926,6 +1015,7 @@
       case "reintentar": return cargarDatos();
       case "limpiar-filtros": return limpiarFiltros();
       case "exportar": return exportar();
+      case "completar-pdf": return completarDesdePdf();
       case "ver-sinpoliza":
         state.fEstado = "sinpoliza";
         $("f-estado").value = "sinpoliza";
@@ -999,6 +1089,9 @@
       fecha_cambio: fecha,
       kilometraje: km ? parseInt(km, 10) : null,
       marca_neumatico: marcas.length >= 2 ? marcas[1] : "",
+      marca_vehiculo: marcas.length >= 2 ? marcas[0] : "",
+      modelo_vehiculo: campo("Modelo"),
+      anio_vehiculo: simple(/A[ñn]o(?:\s+modelo)?:\s*(\d{4})\b/i),
       medida: simple(/Medida:\s*(\d{3}\s?\/\s?\d{2}\s?\/?\s?R?\s?\d{2})/i).replace(/\s+/g, ""),
       cantidad: simple(/Cantidad:\s*(\d+)/i) ? parseInt(simple(/Cantidad:\s*(\d+)/i), 10) : null,
       alineacion: siNoABool(simple(/Alineaci[oó]n:\s*(SI|NO|S[ÍI]|NO)/i)),
@@ -1023,7 +1116,8 @@
 
   function llenarForm(d) {
     const set = (n, v) => (formRev.elements[n].value = v ?? "");
-    ["dominio", "fecha_cambio", "kilometraje", "marca_neumatico", "medida", "cantidad", "chofer", "zona", "asignacion", "observaciones"].forEach((n) => set(n, d[n]));
+    ["dominio", "fecha_cambio", "kilometraje", "marca_neumatico", "medida", "cantidad", "chofer", "zona", "asignacion", "observaciones",
+      "marca_vehiculo", "modelo_vehiculo", "anio_vehiculo"].forEach((n) => set(n, d[n]));
     ["alineacion", "balanceo", "rotacion", "valvulas"].forEach((n) => set(n, d[n] === null ? "" : String(d[n])));
   }
 
@@ -1046,6 +1140,9 @@
       zona: v("zona") || null,
       asignacion: v("asignacion") || null,
       observaciones: v("observaciones") || null,
+      marca_vehiculo: v("marca_vehiculo") || null,
+      modelo_vehiculo: v("modelo_vehiculo") || null,
+      anio_vehiculo: /^\d{4}$/.test(v("anio_vehiculo")) ? v("anio_vehiculo") : null,
     };
   }
 
@@ -1129,7 +1226,17 @@
 
     const fila = { ...d, pdf_path: path, archivo_origen: file.name };
     delete fila._dominioArchivo;
-    const { error } = await sb.from(TABLA).upsert(fila, { onConflict: "dominio,fecha_cambio" });
+    // Si todavía no se ejecutó supabase/vehiculo_pdf.sql, se guarda sin los datos del vehículo.
+    const sinVehiculo = (f) => {
+      const g = { ...f };
+      COLS_VEHICULO.forEach((k) => delete g[k]);
+      return g;
+    };
+    let { error } = await sb.from(TABLA).upsert(state.colsVehiculo === false ? sinVehiculo(fila) : fila, { onConflict: "dominio,fecha_cambio" });
+    if (error && /(marca|modelo|anio)_vehiculo/.test(error.message || "")) {
+      state.colsVehiculo = false;
+      ({ error } = await sb.from(TABLA).upsert(sinVehiculo(fila), { onConflict: "dominio,fecha_cambio" }));
+    }
     if (error) throw error;
     return existente ? "reemplazado" : "nuevo";
   }
@@ -1171,7 +1278,7 @@
           }
         } else {
           final = { ...datos, observaciones: datos.observaciones || null };
-          ["marca_neumatico", "medida", "chofer", "zona", "asignacion"].forEach((k) => (final[k] = final[k] || null));
+          ["marca_neumatico", "medida", "chofer", "zona", "asignacion", "marca_vehiculo", "modelo_vehiculo", "anio_vehiculo"].forEach((k) => (final[k] = final[k] || null));
         }
 
         const r = await guardar(final, file);
