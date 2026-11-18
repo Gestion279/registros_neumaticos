@@ -17,7 +17,8 @@
   --tap: 44px;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
+/* El modo oscuro automático se aplica solo en computadoras (mouse); en el celular siempre claro */
+@media (prefers-color-scheme: dark) and (hover: hover) and (pointer: fine) {
   :root:not([data-theme="light"]) {
     --paper: #0E1719; --surface: #162326; --ink: #E3ECEA; --muted: #94A7A9; --line: #2A3B3E;
     --accent: #4DB6A8; --on-accent: #0B1517; --title: #CFE7E2; --thead: #1A2A2D;
