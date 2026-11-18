@@ -22,6 +22,9 @@ create table if not exists public.cambios_neumaticos (
   zona             text,
   asignacion       text,
   observaciones    text,
+  marca_vehiculo   text,            -- datos del vehículo según el PDF
+  modelo_vehiculo  text,            -- (supabase/vehiculo_pdf.sql)
+  anio_vehiculo    text,
   pdf_path         text,            -- ruta del PDF dentro del bucket "pdfs"
   archivo_origen   text,            -- nombre original del archivo
   created_at       timestamptz not null default now(),
