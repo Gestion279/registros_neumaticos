@@ -4,6 +4,7 @@
    - Lista de vehículos con los datos de la póliza (descripción del vehículo
      y zona), solo para patentes con cambios registrados
    - Ficha por vehículo con gráfico de kilometraje e historial
+   - Aviso en pantalla cuando faltan los datos de la póliza
    - Lectura de PDF en el navegador (pdf.js) y controles de consistencia
    ===================================================================== */
 (() => {
@@ -29,10 +30,11 @@
     registros: [],          // filas tal como vienen de la base (no se modifican)
     poliza: new Map(),      // dominio -> { marca, anio, zona, periodo_id, vigencia_hasta }
     polizaError: null,      // la función de póliza todavía no existe o falló
+    polizaCodigo: null,     // código del error (PGRST202 = la función no existe)
     vehiculos: new Map(),   // dominio -> { dominio, cambios[], ultimo, ultimoConKm, aRevisar, pol, dias, ... }
     cargando: true,
     errorCarga: null,
-    vista: "lista",         // lista | revisar | ficha
+    vista: "lista",         // lista | ficha
     q: "",
     fEstado: "",
     fZona: "",
@@ -160,13 +162,12 @@
     }
     if (rp.status === "fulfilled") {
       state.poliza = rp.value;
-      state.polizaError = null;
+      state.polizaError = state.polizaCodigo = null;
     } else {
-      const avisar = !state.polizaError;
+      state.poliza = new Map();
       state.polizaError = mensajeError(rp.reason);
-      if (avisar && rc.status === "fulfilled")
-        toast("No se pudieron leer los datos de la póliza (marca, año, zona). Se muestran solo los cambios.", true);
-      console.warn("Póliza:", state.polizaError);
+      state.polizaCodigo = rp.reason?.code || null;
+      console.warn("Póliza:", rp.reason);
     }
     if (!state.errorCarga) procesar();
     state.cargando = false;
@@ -403,6 +404,30 @@
     );
   }
 
+  // Explica en pantalla por qué faltan los datos de la póliza.
+  function renderAviso() {
+    const el = $("aviso-poliza");
+    const vs = [...state.vehiculos.values()];
+    const sinPol = vs.filter((v) => !v.pol).length;
+    let html = "", tipo = "info";
+    if (state.cargando || state.errorCarga || !vs.length) html = "";
+    else if (state.polizaError) {
+      tipo = "error";
+      const falta = state.polizaCodigo === "PGRST202" || /could not find the function/i.test(state.polizaError);
+      html = falta
+        ? "<strong>Falta crear la función de la póliza.</strong> Ejecutá <code>supabase/vehiculos_poliza.sql</code> en el SQL Editor de Supabase para ver la descripción del vehículo y la zona."
+        : `<strong>No se pudieron leer los datos de la póliza.</strong> ${esc(state.polizaError)}. Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase para ver la causa.`;
+    } else if (sinPol === vs.length) {
+      tipo = "error";
+      html = `<strong>La póliza no devolvió datos para ninguna de las ${fmtNum(vs.length)} patentes con cambios.</strong> Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase: indica si las patentes no coinciden o si falta permiso de lectura.`;
+    } else if (sinPol) {
+      html = `${plural(sinPol, "patente con cambios no figura", "patentes con cambios no figuran")} en la póliza. <button class="linkbtn" type="button" data-accion="ver-sinpoliza">Ver cuáles</button>`;
+    }
+    el.hidden = !html;
+    el.className = "aviso-banda " + tipo;
+    el.innerHTML = html;
+  }
+
   function renderLista() {
     const tb = $("tb"), tf = $("tf");
     $("filtros-limpiar").hidden = !filtrosActivos();
@@ -457,43 +482,6 @@
     const n = state.marcados.size;
     $("bulk").hidden = !n;
     $("bulk-n").textContent = n === 1 ? "1 vehículo seleccionado" : `${fmtNum(n)} vehículos seleccionados`;
-  }
-
-  /* ---------------------------------------------------------------
-     Para revisar: todos los registros con observaciones de la flota
-     --------------------------------------------------------------- */
-  function itemsRevisar() {
-    const items = [];
-    for (const v of state.vehiculos.values())
-      for (const c of v.cambios) {
-        const ps = aRevisarDe(c);
-        if (ps.length) items.push({ v, c, ps });
-      }
-    return items.sort((a, b) => (b.c.ms || 0) - (a.c.ms || 0) || a.v.dominio.localeCompare(b.v.dominio));
-  }
-
-  function renderRevisar() {
-    const items = state.cargando || state.errorCarga ? [] : itemsRevisar();
-    const cnt = $("t-cnt");
-    cnt.hidden = !items.length;
-    cnt.textContent = fmtNum(items.length);
-    cnt.title = plural(items.length, "registro para revisar", "registros para revisar");
-    if (state.vista !== "revisar") return;
-
-    $("rev-n").textContent = items.length ? plural(items.length, "registro", "registros") : "";
-    if (state.cargando) return ($("tb-rev").innerHTML = vacio(7, "Cargando…"));
-    if (!items.length) return ($("tb-rev").innerHTML = vacio(7, "No hay registros para revisar."));
-    $("tb-rev").innerHTML = items
-      .map(({ v, c, ps }) => `<tr data-dominio="${esc(v.dominio)}">
-        <td class="pat">${plate(v.dominio)}</td>
-        <td class="marca">${v.pol?.marca ? esc(v.pol.marca) : '<span class="nd">Sin datos de póliza</span>'}${v.pol?.anio ? `<small>${esc(v.pol.anio)}</small>` : ""}</td>
-        <td class="zn">${v.pol ? zonaHtml(v.pol.zona) : '<span class="zona none">—</span>'}</td>
-        <td class="fecha">${esc(fmtFecha(c.r.fecha_cambio)) || '<span class="nd">Sin fecha</span>'}</td>
-        <td class="num km">${c.km != null ? fmtNum(c.km) : '<span class="nd">Sin dato</span>'}</td>
-        <td>${tagsHtml(ps)}<small>${esc(ps[0].det)}</small></td>
-        <td class="acc"><div class="pdf-acc">${c.r.pdf_path ? `<button class="btn small" type="button" data-accion="ver" data-id="${c.r.id}">${ico("file")}Ver PDF</button>` : ""}<button class="btn small" type="button" data-accion="abrir" data-dominio="${esc(v.dominio)}">Historial</button></div></td>
-      </tr>`)
-      .join("");
   }
 
   /* ---------------------------------------------------------------
@@ -702,10 +690,7 @@
   function mostrarVista() {
     const v = state.vista;
     $("vista-lista").hidden = v !== "lista";
-    $("vista-revisar").hidden = v !== "revisar";
     $("vista-ficha").hidden = v !== "ficha";
-    $("t-lista").setAttribute("aria-selected", String(v === "lista" || v === "ficha"));
-    $("t-revisar").setAttribute("aria-selected", String(v === "revisar"));
   }
 
   function renderTodo() {
@@ -713,14 +698,12 @@
     renderKpis();
     renderLista();
     renderBulk();
-    renderRevisar();
+    renderAviso();
     renderFicha();
   }
 
-  let vistaPrevia = "lista";
   function seleccionar(dominio, { historial = true } = {}) {
     if (!state.vehiculos.has(dominio)) return;
-    if (state.vista !== "ficha") vistaPrevia = state.vista;
     state.sel = dominio;
     state.vista = "ficha";
     if (historial) {
@@ -754,13 +737,13 @@
   function volver() {
     // Si se llegó desde la lista con la app, Atrás del navegador hace lo mismo.
     if (history.state && history.state.p) history.back();
-    else irA(vistaPrevia === "revisar" ? "revisar" : "lista");
+    else irA("lista");
   }
 
   window.addEventListener("popstate", () => {
     const dom = decodeURIComponent(location.hash.slice(1));
     if (dom && state.vehiculos.has(dom)) seleccionar(dom, { historial: false });
-    else irA(vistaPrevia === "revisar" ? "revisar" : "lista", { historial: false });
+    else irA("lista", { historial: false });
   });
 
   /* ---------------------------------------------------------------
@@ -927,13 +910,11 @@
   });
 
   // Clic en una fila de la lista (fuera de casillas y botones) abre la ficha
-  ["tb", "tb-rev"].forEach((id) =>
-    $(id).addEventListener("click", (e) => {
-      if (e.target.closest("input, button, a, label")) return;
-      const tr = e.target.closest("tr[data-dominio]");
-      if (tr) seleccionar(tr.dataset.dominio);
-    })
-  );
+  $("tb").addEventListener("click", (e) => {
+    if (e.target.closest("input, button, a, label")) return;
+    const tr = e.target.closest("tr[data-dominio]");
+    if (tr) seleccionar(tr.dataset.dominio);
+  });
 
   document.addEventListener("click", (e) => {
     const b = e.target.closest("[data-accion]");
@@ -945,6 +926,12 @@
       case "reintentar": return cargarDatos();
       case "limpiar-filtros": return limpiarFiltros();
       case "exportar": return exportar();
+      case "ver-sinpoliza":
+        state.fEstado = "sinpoliza";
+        $("f-estado").value = "sinpoliza";
+        renderLista();
+        renderKpis();
+        return $("panel-lista").scrollIntoView({ block: "start", behavior: "smooth" });
       case "deseleccionar":
         state.marcados.clear();
         renderLista();
@@ -952,14 +939,6 @@
     }
   });
 
-  $("t-lista").addEventListener("click", () => irA("lista"));
-  $("t-revisar").addEventListener("click", () => irA("revisar"));
-  document.querySelector(".tabs").addEventListener("keydown", (e) => {
-    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
-    const otra = e.target.id === "t-lista" ? $("t-revisar") : $("t-lista");
-    otra.focus();
-    otra.click();
-  });
 
   $("btn-exportar").addEventListener("click", exportar);
   $("btn-orden").addEventListener("click", () => {
