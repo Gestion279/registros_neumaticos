@@ -82,9 +82,9 @@ año del último período de la póliza en que figura, y la zona de la base de z
 
 - Las patentes de la póliza sin cambios registrados no aparecen.
 - Si la patente no figura en la póliza, o la póliza no tiene ese dato, se usan los datos del
-  PDF más reciente: «Marca - Modelo» y año del vehículo, y la zona del reporte. Esos datos
-  llevan la etiqueta **PDF**. La zona del PDF es texto libre y puede no coincidir con los
-  nombres de zona de la póliza.
+  PDF más reciente: «Marca - Modelo» y año del vehículo, y la zona del reporte. En pantalla
+  no se indica de dónde sale cada dato. La zona del PDF es texto libre y puede no coincidir
+  con los nombres de zona de la póliza.
 - Al cargar un PDF, marca, modelo y año del vehículo se leen y se pueden corregir en el
   formulario de revisión. Para los registros cargados antes, el botón **Completar desde los
   PDF** (arriba de la lista) vuelve a leer el PDF más reciente de cada vehículo sin datos de

@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Historial de neumáticos",
   "short_name": "Neumáticos",
-  "description": "Vehículos de la póliza con cambios de neumáticos registrados.",
+  "description": "Vehículos con cambios de neumáticos registrados.",
   "lang": "es-AR",
   "start_url": "/",
   "scope": "/",
