@@ -332,7 +332,6 @@
       case "revisar": return v.aRevisar > 0;
       case "vencido": return v.edad === "vencido";
       case "alerta": return v.edad === "alerta";
-      case "sinpoliza": return !v.pol;
       default: return true;
     }
   }
@@ -383,11 +382,10 @@
     return `<div class="edad ${v.edad}"><span class="barra" aria-hidden="true"><i style="width:${pct}%"></i></span><span>${haceTxt(v.dias)}</span></div>`;
   }
 
-  const TAG_PDF = '<span class="fuente-pdf" title="No figura en la póliza: dato tomado del último PDF del reporte">PDF</span>';
   const descHtml = (v) =>
     v.desc
-      ? `${esc(v.desc)}${v.descPdf ? TAG_PDF : ""}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`
-      : `<span class="nd">${v.pol ? "Sin descripción" : "Sin datos de póliza ni del PDF"}</span>${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`;
+      ? `${esc(v.desc)}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`
+      : `<span class="nd">Sin datos del vehículo</span>${v.anio ? `<small>${esc(v.anio)}</small>` : ""}`;
 
   function filaVehiculo(v) {
     const u = v.ultimo?.r;
@@ -397,7 +395,7 @@
       <td class="chk"><input type="checkbox" class="marca-chk" ${marcado ? "checked" : ""} aria-label="Seleccionar ${esc(v.dominio)}"></td>
       <td class="pat">${plate(v.dominio)}</td>
       <td class="marca">${descHtml(v)}</td>
-      <td class="zn">${zonaHtml(v.zona)}${v.zonaPdf ? TAG_PDF : ""}</td>
+      <td class="zn">${zonaHtml(v.zona)}</td>
       <td class="ult"><span class="fecha">${u ? esc(fmtFecha(u.fecha_cambio)) : ""}</span>${edadHtml(v)}</td>
       <td class="num km">${v.ultimoConKm ? fmtNum(v.ultimoConKm.km) : '<span class="nd">Sin dato</span>'}</td>
       <td class="neum">${u?.marca_neumatico ? esc(u.marca_neumatico) : '<span class="nd">—</span>'}${u?.medida || u?.cantidad != null ? `<small>${[u.medida && esc(u.medida), u.cantidad != null && `${u.cantidad} u.`].filter(Boolean).join(" · ")}</small>` : ""}</td>
@@ -417,9 +415,7 @@
     if (state.errorCarga) return ["k-total", "k-revisar", "k-vencido", "k-prom"].forEach((id) => set(id, "—"));
     const vs = [...state.vehiculos.values()];
     set("k-total", fmtNum(vs.length));
-    const sinPol = vs.filter((v) => !v.pol).length;
-    $("k-total-sub").textContent =
-      state.polizaError ? "Sin datos de póliza disponibles" : sinPol ? `${fmtNum(sinPol)} sin datos de póliza` : "Con cambios registrados";
+    $("k-total-sub").textContent = "Con cambios registrados";
     set("k-revisar", fmtNum(vs.filter((v) => v.aRevisar).length));
     set("k-vencido", fmtNum(vs.filter((v) => v.edad === "vencido").length));
     const tramos = vs.flatMap((v) => v.tramosKm);
@@ -456,8 +452,6 @@
       } else if (sinPol === vs.length) {
         tipo = "error";
         msgs.push(`<strong>La póliza no devolvió datos para ninguna de las ${fmtNum(vs.length)} patentes con cambios.</strong> Se muestran los datos del PDF. Ejecutá <code>supabase/diagnostico_poliza.sql</code> en Supabase para ver la causa.`);
-      } else if (sinPol) {
-        msgs.push(`${plural(sinPol, "patente no figura", "patentes no figuran")} en la póliza: se muestran marca, modelo y zona del último PDF, marcados <span class="fuente-pdf">PDF</span>. <button class="linkbtn" type="button" data-accion="ver-sinpoliza">Ver cuáles</button>`);
       }
       if (state.completando) {
         msgs.push(`Leyendo los PDF para completar marca y modelo… ${fmtNum(state.completando.i)} de ${fmtNum(state.completando.n)}`);
@@ -467,7 +461,7 @@
       } else {
         const pend = pendientesPdf().length;
         if (pend)
-          msgs.push(`${plural(pend, "vehículo sin datos de póliza todavía no tiene", "vehículos sin datos de póliza todavía no tienen")} marca y modelo leídos de su PDF. <button class="btn small" type="button" data-accion="completar-pdf">Completar desde los PDF</button>`);
+          msgs.push(`${plural(pend, "vehículo todavía no tiene", "vehículos todavía no tienen")} marca y modelo cargados. <button class="btn small" type="button" data-accion="completar-pdf">Completar desde los PDF</button>`);
       }
     }
     el.hidden = !msgs.length;
@@ -564,7 +558,7 @@
     }
     tb.innerHTML = lista.map(filaVehiculo).join("");
     tf.innerHTML = `<tr><td colspan="5">${lista.length === total ? "Total" : "Subtotal"} ${plural(lista.length, "vehículo", "vehículos")}</td>
-      <td colspan="5" class="fuente">Vehículo y zona: póliza${state.polizaError ? " (no disponible)" : ""}; si falta, último PDF (marcado PDF) · Solo vehículos con cambios registrados</td></tr>`;
+      <td colspan="5" class="fuente">Solo vehículos con cambios registrados</td></tr>`;
   }
 
   function renderBulk() {
@@ -733,11 +727,10 @@
 
     $("hist-plate").firstElementChild.textContent = v.dominio;
     $("hist-marca").innerHTML =
-      (v.desc ? `${esc(v.desc)}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}${v.descPdf ? TAG_PDF : ""}` : "") +
-      (!v.pol ? `<div><span class="aviso-poliza">${state.polizaError ? "Datos de póliza no disponibles" : "No figura en la póliza"}${v.desc ? ": datos del último PDF" : ""}</span></div>` : "");
+      v.desc ? `${esc(v.desc)}${v.anio ? `<small>${esc(v.anio)}</small>` : ""}` : '<span class="nd">Sin datos del vehículo</span>';
 
     const datos = [];
-    datos.push(["Zona", zonaHtml(v.zona) + (v.zonaPdf ? TAG_PDF : "")]);
+    datos.push(["Zona", zonaHtml(v.zona)]);
     datos.push(
       ["Chofer (último reporte)", esc(u?.chofer) || '<span class="nd">—</span>'],
       ["Asignación", esc(u?.asignacion) || '<span class="nd">—</span>'],
@@ -843,12 +836,11 @@
       : vehiculosVisibles();
     const lista = state.marcados.size && !base.length ? [...state.marcados].map((d) => state.vehiculos.get(d)).filter(Boolean) : base;
     if (!lista.length) return toast("No hay vehículos para exportar", true);
-    const cab = ["Patente", "Vehículo", "Año", "Zona", "Origen de vehículo y zona", "Último cambio", "Días desde el último cambio",
+    const cab = ["Patente", "Vehículo", "Año", "Zona", "Último cambio", "Días desde el último cambio",
       "Km en el último cambio", "Neumático", "Medida", "Cambios", "Km promedio entre cambios", "Registros para revisar"];
     const filas = lista.map((v) => {
       const u = v.ultimo?.r;
       return [v.dominio, v.desc ?? "", v.anio ?? "", v.zona ?? "",
-        v.pol ? (v.descPdf || v.zonaPdf ? "Póliza y PDF" : "Póliza") : v.desc || v.zona ? "PDF" : "",
         u ? fmtFecha(u.fecha_cambio) : "", v.dias ?? "", v.ultimoConKm?.km ?? "", u?.marca_neumatico ?? "", u?.medida ?? "",
         v.cambios.length, v.kmProm ?? "", v.aRevisar];
     });
@@ -1016,12 +1008,6 @@
       case "limpiar-filtros": return limpiarFiltros();
       case "exportar": return exportar();
       case "completar-pdf": return completarDesdePdf();
-      case "ver-sinpoliza":
-        state.fEstado = "sinpoliza";
-        $("f-estado").value = "sinpoliza";
-        renderLista();
-        renderKpis();
-        return $("panel-lista").scrollIntoView({ block: "start", behavior: "smooth" });
       case "deseleccionar":
         state.marcados.clear();
         renderLista();
