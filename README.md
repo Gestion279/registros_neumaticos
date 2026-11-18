@@ -57,11 +57,11 @@ git push -u origin main
 1. **Cargar PDF** (arriba a la derecha): elegir uno o varios PDF, o arrastrarlos a
    cualquier parte de la página. La app lee los datos, los muestra para revisarlos y,
    al confirmar, guarda el registro y el PDF.
-2. **Vehículos** muestra una fila por patente con cambios registrados: certificado,
-   marca completa, año y zona (de la póliza), fecha y antigüedad del último cambio
+2. **Vehículos** muestra una fila por patente con cambios registrados: descripción
+   del vehículo, año y zona (de la póliza), fecha y antigüedad del último cambio
    (barra verde, amarilla o roja), km, neumático, cantidad de cambios y estado.
    - Los indicadores de arriba filtran la lista (para revisar, más de 12 meses sin cambio).
-   - Se puede buscar por patente, marca o zona, filtrar por estado y zona, y ordenar
+   - Se puede buscar por patente, vehículo o zona, filtrar por estado y zona, y ordenar
      tocando el encabezado de cada columna.
    - **Exportar a Excel** descarga la lista visible, o solo los vehículos tildados.
 3. Tocando una fila se abre la **ficha del vehículo**: datos de la póliza, chofer y
@@ -75,7 +75,7 @@ git push -u origin main
 
 La app de pólizas usa el mismo proyecto de Supabase. La función
 `vehiculos_poliza_con_cambios()` (en `supabase/vehiculos_poliza.sql`) devuelve, para cada
-patente **que tenga al menos un cambio registrado**, el certificado, la marca completa y el
+patente **que tenga al menos un cambio registrado**, la descripción del vehículo (marca completa) y el
 año del último período de la póliza en que figura, y la zona de la base de zonas.
 
 - Las patentes de la póliza sin cambios registrados no aparecen.

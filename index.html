@@ -96,7 +96,7 @@
           <label class="fq">
             <span class="sr-only">Buscar</span>
             <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
-            <input type="search" id="buscar" class="txt" placeholder="Buscar patente, marca o zona" autocomplete="off" spellcheck="false">
+            <input type="search" id="buscar" class="txt" placeholder="Buscar patente, vehículo o zona" autocomplete="off" spellcheck="false">
           </label>
           <label class="fsel"><span class="sr-only">Estado</span>
             <select id="f-estado" class="txt">
@@ -124,9 +124,8 @@
             <thead>
               <tr>
                 <th class="chk"><input type="checkbox" id="sel-todos" aria-label="Seleccionar todos los visibles"></th>
-                <th data-sort="cert" tabindex="0" aria-sort="ascending">Cert.</th>
-                <th data-sort="patente" tabindex="0">Patente</th>
-                <th data-sort="marca" tabindex="0">Marca completa</th>
+                <th data-sort="patente" tabindex="0" aria-sort="ascending">Patente</th>
+                <th data-sort="marca" tabindex="0">Vehículo</th>
                 <th data-sort="zona" tabindex="0">Zona</th>
                 <th data-sort="ultimo" tabindex="0">Último cambio</th>
                 <th data-sort="km" tabindex="0" class="num">Km en el último cambio</th>
@@ -156,7 +155,7 @@
             <caption class="sr-only">Registros con observaciones de consistencia</caption>
             <thead>
               <tr>
-                <th>Patente</th><th>Marca completa</th><th>Fecha del cambio</th><th class="num">Km</th><th>Motivo</th><th><span class="sr-only">Acciones</span></th>
+                <th>Patente</th><th>Vehículo</th><th>Zona</th><th>Fecha del cambio</th><th class="num">Km</th><th>Motivo</th><th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody id="tb-rev"></tbody>
