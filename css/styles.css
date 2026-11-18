@@ -101,7 +101,7 @@ th[data-sort]:focus-visible { outline-offset: -2px; }
 /* ---------- encabezado ---------- */
 header.top {
   display: flex; flex-wrap: wrap; gap: 10px 28px; align-items: flex-end; justify-content: space-between;
-  margin: 0 -16px 16px; padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 0;
+  margin: 0 -16px 16px; padding: calc(14px + env(safe-area-inset-top, 0px)) 16px 12px;
   position: sticky; top: 0; z-index: 15;
   background: var(--paper); border-bottom: 1px solid var(--line);
   box-shadow: 0 4px 10px -8px rgba(0, 0, 0, .25);
@@ -109,14 +109,11 @@ header.top {
 .brand { display: flex; align-items: center; gap: 10px; font: 700 27px/1.15 var(--cond); color: var(--title); margin-bottom: 4px; }
 .brand img { border-radius: 9px; }
 .sub { color: var(--muted); margin: 0; }
-.hright { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding-bottom: 12px; }
-.tabs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
-.tabs button {
-  border: 0; background: transparent; color: var(--muted); font: 600 16px var(--cond);
-  padding: 8px 12px; border-radius: 7px 7px 0 0; cursor: pointer;
-}
-.tabs button[aria-selected="true"] { color: var(--ink); background: var(--surface); box-shadow: inset 0 -2px 0 var(--accent); }
-.tabs .cnt { font: 600 12px var(--sans); background: var(--warn-bg); color: var(--warn); border-radius: 10px; padding: 1px 7px; margin-left: 5px; vertical-align: 2px; }
+.hright { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.aviso-banda { margin: 0; padding: 10px 14px; border-radius: 10px; font-size: 13.5px; border: 1px solid; }
+.aviso-banda.info { background: var(--info-bg); color: var(--info); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
+.aviso-banda.error { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.aviso-banda .linkbtn { color: inherit; padding: 0 2px; }
 
 main > section { display: grid; gap: 14px; }
 
@@ -173,7 +170,6 @@ table { border-collapse: collapse; width: 100%; }
 .vtable tfoot td { font-weight: 700; border-top: 2px solid var(--title); border-bottom: 0; padding: 9px 14px; }
 .vtable tfoot td.fuente { font-weight: 400; color: var(--muted); }
 #tabla-veh { min-width: 1080px; }
-.rtable { min-width: 860px; }
 .htable { min-width: 1000px; }
 td.chk, th.chk { width: 36px; }
 td.marca { min-width: 170px; }
@@ -339,7 +335,7 @@ dialog:not([open]) { display: none !important; }
    ===================================================================== */
 @media (max-width: 760px) {
   .wrap { padding: 0 12px 40px; }
-  header.top { margin: 0 -12px 12px; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 0; gap: 8px; }
+  header.top { margin: 0 -12px 12px; padding: calc(10px + env(safe-area-inset-top, 0px)) 12px 10px; gap: 8px; }
   header.top > div:first-child { flex: 1 1 100%; }
   .brand { font-size: 20px; padding-right: 150px; }
   .brand img { width: 32px; height: 32px; }
@@ -347,7 +343,6 @@ dialog:not([open]) { display: none !important; }
   .hright { order: -1; position: absolute; right: 12px; top: calc(8px + env(safe-area-inset-top, 0px)); padding: 0; gap: 6px; }
   .hright .btn { min-height: 40px; padding: 8px 10px; }
   .t-long { display: none; }
-  .tabs { margin-top: 6px; }
 
   .kpis { grid-template-columns: 1fr 1fr; gap: 8px; }
   .kpi { padding: 10px 12px; }
@@ -360,16 +355,16 @@ dialog:not([open]) { display: none !important; }
   .txt { min-height: var(--tap); font-size: 16px; } /* 16px evita el zoom en iOS */
   .count { margin-left: 0; }
 
-  #tabla-veh, .rtable { min-width: 0; }
-  #tabla-veh thead, .rtable thead { display: none; }
-  #tabla-veh tbody tr, .rtable tbody tr {
+  #tabla-veh { min-width: 0; }
+  #tabla-veh thead { display: none; }
+  #tabla-veh tbody tr {
     display: grid; grid-template-columns: auto 1fr auto; gap: 4px 12px; align-items: center;
     padding: 12px; border-bottom: 1px solid var(--line);
   }
   #tabla-veh tbody tr {
     grid-template-areas: "pat marca marca" "pat zn zn" "pat ult ult" "pat km est";
   }
-  #tabla-veh tbody td, .rtable tbody td { display: block; padding: 0; border: 0; }
+  #tabla-veh tbody td { display: block; padding: 0; border: 0; }
   #tabla-veh td.chk { display: none; }
   #tabla-veh td.pat { grid-area: pat; align-self: start; }
   #tabla-veh td.marca { grid-area: marca; min-width: 0; font-weight: 600; }
@@ -381,15 +376,10 @@ dialog:not([open]) { display: none !important; }
   #tabla-veh td.km::after { content: " km"; font-weight: 500; }
   #tabla-veh td.est { grid-area: est; justify-self: end; }
   #tabla-veh td.neum, #tabla-veh td.ncamb, #tabla-veh td.acc { display: none; }
-  #tabla-veh tbody tr.vacio, .rtable tbody tr.vacio { display: block; }
-  #tabla-veh tbody tr.vacio td, .rtable tbody tr.vacio td { padding: 20px 4px; }
+  #tabla-veh tbody tr.vacio { display: block; }
+  #tabla-veh tbody tr.vacio td { padding: 20px 4px; }
   #tabla-veh tbody tr.esq { display: block; }
   #tabla-veh tfoot td.fuente { display: none; }
-  .rtable td.pat { grid-row: 1 / span 4; align-self: start; }
-  .rtable td.zn { grid-column: 2 / 4; }
-  .rtable td.acc { grid-column: 2 / 4; justify-self: stretch; }
-  .rtable td.acc .pdf-acc { justify-content: flex-start; }
-  .rtable td.num { text-align: left; }
 
   .ficha-head { padding: 14px; gap: 12px; }
   .ficha-acc, .ficha-acc .btn { width: 100%; }
