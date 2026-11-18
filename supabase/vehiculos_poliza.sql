@@ -67,3 +67,6 @@ comment on function public.vehiculos_poliza_con_cambios() is
 
 revoke all on function public.vehiculos_poliza_con_cambios() from public;
 grant execute on function public.vehiculos_poliza_con_cambios() to anon, authenticated;
+
+-- Avisa a la API (PostgREST) que hay una función nueva, para que la app la vea enseguida.
+notify pgrst, 'reload schema';
