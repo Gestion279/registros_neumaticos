@@ -4,8 +4,9 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Historial de neumáticos</title>
-  <meta name="description" content="Consulta de cambios de neumáticos por vehículo.">
-  <meta name="theme-color" content="#416F68">
+  <meta name="description" content="Vehículos de la póliza con cambios de neumáticos registrados.">
+  <meta name="theme-color" content="#EEF3F2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0E1719" media="(prefers-color-scheme: dark)">
 
   <!-- App instalable (PWA) -->
   <link rel="manifest" href="/manifest.webmanifest">
@@ -19,49 +20,8 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Archivo+Narrow:wght@600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/styles.css">
-
-  <!-- Distribución del bloque de filtros (solo estructura; los colores vienen de styles.css) -->
-  <style>
-    .filtros-bloque{
-      background:rgba(65,111,104,.08);   /* tono del color original #416F68 */
-      border:1px solid rgba(65,111,104,.25);
-      border-radius:12px;
-      padding:14px 16px 16px;
-      margin-bottom:20px;
-    }
-    .filtros-bloque .panel-head{
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      margin:0 0 12px;
-    }
-    .filtros-bloque .panel-head h2{ margin:0; display:flex; align-items:center; gap:8px; }
-    .filtros-fila{
-      display:grid;
-      grid-template-columns:minmax(150px,1.2fr) minmax(140px,1fr) minmax(140px,1fr) minmax(190px,1.3fr);
-      gap:12px; align-items:end;
-    }
-    .filtros-fila > label{
-      display:flex; flex-direction:column; gap:4px; min-width:0;
-      font-size:.82rem; font-weight:600;
-    }
-    .filtros-fila input,
-    .filtros-fila select{
-      width:100%; min-width:0; box-sizing:border-box; height:40px;
-      background:#fff; color:inherit;
-      border:1px solid rgba(0,0,0,.18); border-radius:8px; padding:0 10px; font:inherit; font-weight:400;
-    }
-    .filtros-fila .campo-patente{ position:relative; }
-    .filtros-fila .campo-patente input{ text-transform:uppercase; padding-right:36px; }
-    .filtros-fila .campo-patente .icon-btn{
-      position:absolute; right:4px; bottom:4px; height:32px; width:32px;
-      background:transparent; border:0; border-radius:6px; color:inherit; cursor:pointer;
-    }
-    @media (max-width:760px){
-      .filtros-fila{ grid-template-columns:1fr 1fr; }
-      .filtros-fila .campo-patente, .filtros-fila .campo-orden{ grid-column:1 / -1; }
-    }
-  </style>
 </head>
 <body>
 
@@ -71,7 +31,6 @@
     <symbol id="i-install" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M4 19h16"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
     <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
-    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M4 5h16l-6 7.5V19l-4-2v-4.5z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11m0 0-4.5-4.5M12 15l4.5-4.5M4 19h16"/></symbol>
     <symbol id="i-sort" viewBox="0 0 24 24"><path d="M8 4v16m0 0-3.5-3.5M8 20l3.5-3.5M16 20V4m0 0-3.5 3.5M16 4l3.5 3.5"/></symbol>
@@ -79,24 +38,30 @@
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.8 19.5h18.4z"/><path d="M12 10v4.5M12 17.2v.1"/></symbol>
     <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6M20 4v4.5h-4.5"/></symbol>
+    <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/></symbol>
   </svg>
 
+  <div class="wrap">
   <!-- ============ ENCABEZADO ============ -->
-  <header class="topbar">
-    <div class="marca">
-      <img src="/icons/icon-192.png" alt="" width="36" height="36" class="marca-logo">
-      <div class="marca-txt">
-        <h1>Historial de neumáticos</h1>
-        <p class="marca-sub">Consulta de cambios por vehículo</p>
+  <header class="top">
+    <div>
+      <h1 class="brand"><img src="/icons/icon-192.png" alt="" width="40" height="40">Historial de neumáticos</h1>
+      <p class="sub">Vehículos de la póliza con cambios de neumáticos registrados.</p>
+      <div class="tabs" role="tablist" aria-label="Secciones">
+        <button role="tab" id="t-lista" aria-selected="true" aria-controls="vista-lista" type="button">Vehículos</button>
+        <button role="tab" id="t-revisar" aria-selected="false" aria-controls="vista-revisar" type="button">Para revisar <span class="cnt" id="t-cnt" hidden></span></button>
       </div>
     </div>
-    <div class="topbar-acciones">
-      <button id="btn-instalar" class="btn on-dark" type="button" hidden aria-label="Instalar la aplicación">
-        <svg class="ico"><use href="#i-install"/></svg><span class="txt-largo">Instalar</span>
+    <div class="hright">
+      <button id="btn-instalar" class="btn" type="button" hidden>
+        <svg class="ico"><use href="#i-install"/></svg><span class="t-long">Instalar</span>
       </button>
-      <button id="btn-registros" class="btn on-dark solid" type="button"
+      <button id="btn-exportar" class="btn" type="button" title="Descarga la lista visible (o los vehículos tildados) para abrir en Excel">
+        <svg class="ico"><use href="#i-sheet"/></svg><span class="t-long">Exportar a Excel</span>
+      </button>
+      <button id="btn-registros" class="btn primary" type="button"
               title="Cargar uno o varios PDF de reporte de cambio (también podés arrastrarlos a la página)">
-        <svg class="ico"><use href="#i-upload"/></svg><span>Registros</span>
+        <svg class="ico"><use href="#i-upload"/></svg><span>Cargar PDF</span>
       </button>
     </div>
     <input type="file" id="file-input" accept="application/pdf,.pdf" multiple hidden>
@@ -104,106 +69,160 @@
     <input type="checkbox" id="chk-revisar" checked hidden>
   </header>
 
-  <main class="wrap">
-
-    <!-- Indicadores -->
-    <section class="kpis" aria-label="Resumen">
-      <div class="kpi"><span class="kpi-lbl">Vehículos</span><strong id="kpi-vehiculos" class="kpi-val">…</strong></div>
-      <div class="kpi"><span class="kpi-lbl">Registros</span><strong id="kpi-registros" class="kpi-val">…</strong></div>
-      <div class="kpi"><span class="kpi-lbl">Último cambio</span><strong id="kpi-ultimo" class="kpi-val">…</strong></div>
-    </section>
-
-    <!-- Filtros + Patentes -->
-    <section id="panel-patentes" class="panel">
-      <div id="filtros" class="filtros-bloque" role="group" aria-labelledby="filtros-titulo">
-        <div class="panel-head">
-          <h2 id="filtros-titulo">Filtros <span id="filtros-n" class="badge" hidden></span></h2>
-          <button id="filtros-limpiar" class="btn ghost small" type="button" disabled>Limpiar filtros</button>
+  <main>
+    <!-- ============ VEHÍCULOS ============ -->
+    <section id="vista-lista" role="tabpanel" aria-labelledby="t-lista">
+      <div class="kpis" aria-label="Resumen">
+        <button type="button" class="kpi" data-estado="">
+          <span class="kpi-lbl">Vehículos</span><strong class="kpi-val" id="k-total">…</strong>
+          <span class="kpi-sub" id="k-total-sub">Con cambios registrados</span>
+        </button>
+        <button type="button" class="kpi warn" data-estado="revisar">
+          <span class="kpi-lbl">Para revisar</span><strong class="kpi-val" id="k-revisar">…</strong>
+          <span class="kpi-sub">Km menor al anterior, duplicados, fechas</span>
+        </button>
+        <button type="button" class="kpi bad" data-estado="vencido">
+          <span class="kpi-lbl">Sin cambio hace más de 12 meses</span><strong class="kpi-val" id="k-vencido">…</strong>
+          <span class="kpi-sub">Tocá para ver cuáles</span>
+        </button>
+        <div class="kpi">
+          <span class="kpi-lbl">Km promedio entre cambios</span><strong class="kpi-val" id="k-prom">…</strong>
+          <span class="kpi-sub">Toda la flota</span>
         </div>
+      </div>
 
-        <div class="filtros-fila">
-          <label class="campo-patente">Patente
-            <input type="search" id="buscar" placeholder="Ej.: AB123CD" autocomplete="off"
-                   autocapitalize="characters" spellcheck="false">
-            <button id="buscar-limpiar" class="icon-btn" type="button" aria-label="Limpiar patente" hidden>
-              <svg class="ico"><use href="#i-x"/></svg>
-            </button>
+      <div class="panel" id="panel-lista">
+        <div class="toolbar">
+          <label class="fq">
+            <span class="sr-only">Buscar</span>
+            <svg class="ico" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" id="buscar" class="txt" placeholder="Buscar patente, marca o zona" autocomplete="off" spellcheck="false">
           </label>
-          <label>Desde <input type="date" id="f-desde"></label>
-          <label>Hasta <input type="date" id="f-hasta"></label>
-          <label class="campo-orden">Ordenar por
-            <select id="orden-patentes">
-              <option value="patente-asc">Patente (A → Z)</option>
-              <option value="patente-desc">Patente (Z → A)</option>
-              <option value="reciente">Último cambio (reciente primero)</option>
-              <option value="cambios">Cantidad de cambios</option>
-              <option value="km">Kilometraje más reciente</option>
+          <label class="fsel"><span class="sr-only">Estado</span>
+            <select id="f-estado" class="txt">
+              <option value="">Todos los vehículos</option>
+              <option value="revisar">Para revisar</option>
+              <option value="vencido">Más de 12 meses sin cambio</option>
+              <option value="alerta">Entre 6 y 12 meses sin cambio</option>
+              <option value="sinpoliza">Sin datos de póliza</option>
             </select>
           </label>
+          <label class="fsel"><span class="sr-only">Zona</span>
+            <select id="f-zona" class="txt"><option value="">Todas las zonas</option></select>
+          </label>
+          <button id="filtros-limpiar" class="linkbtn" type="button" hidden>Limpiar filtros</button>
+          <span class="count" id="lista-n"></span>
         </div>
-
-        <!-- Filtros retirados de la vista. Se conservan ocultos y vacíos
-             para que js/app.js los siga encontrando y no falle. -->
-        <div hidden aria-hidden="true">
-          <span id="pat-count"></span>
-          <select id="f-marca" tabindex="-1"></select>
-          <select id="f-zona" tabindex="-1"></select>
-          <select id="f-chofer" tabindex="-1"></select>
+        <div class="bulk" id="bulk" hidden>
+          <b id="bulk-n"></b>
+          <button class="btn" type="button" data-accion="exportar">Exportar seleccionados</button>
+          <button class="linkbtn" type="button" data-accion="deseleccionar">Quitar selección</button>
+        </div>
+        <div class="tablewrap">
+          <table class="vtable" id="tabla-veh">
+            <caption class="sr-only">Vehículos con cambios de neumáticos</caption>
+            <thead>
+              <tr>
+                <th class="chk"><input type="checkbox" id="sel-todos" aria-label="Seleccionar todos los visibles"></th>
+                <th data-sort="cert" tabindex="0" aria-sort="ascending">Cert.</th>
+                <th data-sort="patente" tabindex="0">Patente</th>
+                <th data-sort="marca" tabindex="0">Marca completa</th>
+                <th data-sort="zona" tabindex="0">Zona</th>
+                <th data-sort="ultimo" tabindex="0">Último cambio</th>
+                <th data-sort="km" tabindex="0" class="num">Km en el último cambio</th>
+                <th>Neumático</th>
+                <th data-sort="cambios" tabindex="0" class="num">Cambios</th>
+                <th>Estado</th>
+                <th><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody id="tb"></tbody>
+            <tfoot id="tf"></tfoot>
+          </table>
         </div>
       </div>
-
-      <div id="patentes" class="plates" aria-live="polite"></div>
     </section>
 
-    <!-- Historial del vehículo -->
-    <section id="historial" class="panel historial" hidden aria-labelledby="hist-titulo">
-      <div class="hist-head">
-        <button id="btn-volver" class="btn ghost small volver" type="button">
-          <svg class="ico"><use href="#i-back"/></svg>Patentes
-        </button>
-        <div class="hist-id">
-          <h2 id="hist-titulo" tabindex="-1"><span class="sr-only">Historial de </span><span id="hist-plate" class="plate big"></span></h2>
-          <dl id="hist-datos" class="hist-datos"></dl>
+    <!-- ============ PARA REVISAR ============ -->
+    <section id="vista-revisar" role="tabpanel" aria-labelledby="t-revisar" hidden>
+      <div class="panel">
+        <div class="toolbar">
+          <h2>Registros para revisar</h2>
+          <span class="count" id="rev-n"></span>
         </div>
-        <div class="hist-acciones">
-          <button id="btn-ultimo-pdf" class="btn ghost" type="button">
-            <svg class="ico"><use href="#i-file"/></svg>PDF del último cambio
-          </button>
-          <button id="btn-orden" class="btn ghost" type="button"></button>
+        <p class="nota">La app nunca modifica los registros: solo los señala. Abrí el PDF para comparar y, si hace falta, volvé a cargarlo con el dato corregido.</p>
+        <div class="tablewrap">
+          <table class="vtable rtable">
+            <caption class="sr-only">Registros con observaciones de consistencia</caption>
+            <thead>
+              <tr>
+                <th>Patente</th><th>Marca completa</th><th>Fecha del cambio</th><th class="num">Km</th><th>Motivo</th><th><span class="sr-only">Acciones</span></th>
+              </tr>
+            </thead>
+            <tbody id="tb-rev"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ FICHA DEL VEHÍCULO ============ -->
+    <section id="vista-ficha" aria-labelledby="hist-titulo" hidden>
+      <button id="btn-volver" class="linkbtn volver" type="button">
+        <svg class="ico"><use href="#i-back"/></svg>Volver a vehículos
+      </button>
+
+      <div class="panel ficha-head">
+        <h2 id="hist-titulo" tabindex="-1"><span class="sr-only">Historial de </span><span id="hist-plate" class="plate big"><span></span></span></h2>
+        <div class="ficha-id">
+          <div id="hist-marca" class="ficha-marca"></div>
+          <dl id="hist-datos" class="ficha-datos"></dl>
+        </div>
+        <div class="ficha-acc">
+          <button id="btn-ultimo-pdf" class="btn" type="button"><svg class="ico"><use href="#i-file"/></svg>PDF del último cambio</button>
         </div>
       </div>
 
-      <p id="hist-nota" class="nota" hidden></p>
+      <div class="kpis" id="hist-kpis" aria-label="Resumen del vehículo"></div>
 
-      <!-- Escritorio y tablet: tabla -->
-      <div class="table-scroll vista-tabla">
-        <table>
-          <caption class="sr-only">Cambios de neumáticos del vehículo seleccionado</caption>
-          <thead>
-            <tr>
-              <th>Fecha</th>
-              <th class="num">Km</th>
-              <th class="num wrap-th">Desde el anterior</th>
-              <th>Neumático</th>
-              <th class="num">Cant.</th>
-              <th class="c" title="Alineación">Alin.</th>
-              <th class="c" title="Balanceo">Bal.</th>
-              <th class="c" title="Rotación">Rot.</th>
-              <th class="c" title="Válvulas">Válv.</th>
-              <th>Chofer · Zona</th>
-              <th class="obs">Observaciones</th>
-              <th>Revisión</th>
-              <th><span class="sr-only">Documento</span></th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
+      <div class="panel grafico" id="hist-grafico-panel">
+        <div class="toolbar">
+          <h2>Kilometraje en cada cambio</h2>
+          <span class="leyenda"><i class="pt-rev"></i>Registro para revisar</span>
+        </div>
+        <div class="grafico-wrap" id="hist-grafico"></div>
       </div>
 
-      <!-- Celular: fichas -->
-      <ol id="fichas" class="fichas vista-fichas"></ol>
+      <div class="panel">
+        <div class="toolbar">
+          <h2>Cambios</h2>
+          <button id="btn-orden" class="btn" type="button"></button>
+        </div>
+        <!-- PC y tablet: tabla -->
+        <div class="tablewrap vista-tabla">
+          <table class="vtable htable">
+            <caption class="sr-only">Cambios de neumáticos del vehículo</caption>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th class="num">Km</th>
+                <th class="num">Desde el anterior</th>
+                <th>Neumático</th>
+                <th>Servicios</th>
+                <th>Chofer · Zona del reporte</th>
+                <th class="obs">Observaciones</th>
+                <th>Revisión</th>
+                <th><span class="sr-only">Documento</span></th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+        <!-- Celular: fichas -->
+        <ol id="fichas" class="fichas vista-fichas"></ol>
+      </div>
     </section>
   </main>
+  </div>
 
   <!-- ============ MODAL: revisión de datos ============ -->
   <dialog id="dlg-revisar" class="dlg">
@@ -251,28 +270,5 @@
   <script src="js/config.js"></script>
   <script src="js/app.js"></script>
   <script src="js/pwa.js"></script>
-  <script>
-    /* El filtro "Patente" usa el mismo campo de búsqueda que app.js.
-       Esto suma ese campo al botón "Limpiar filtros". */
-    (function () {
-      var pat = document.getElementById('buscar');
-      var limpiar = document.getElementById('filtros-limpiar');
-      var desde = document.getElementById('f-desde');
-      var hasta = document.getElementById('f-hasta');
-      function sync() {
-        if (pat.value.trim()) limpiar.disabled = false;
-        else if (!desde.value && !hasta.value) limpiar.disabled = true;
-      }
-      ['input', 'change', 'search'].forEach(function (ev) {
-        [pat, desde, hasta].forEach(function (el) { el.addEventListener(ev, function () { setTimeout(sync, 0); }); });
-      });
-      limpiar.addEventListener('click', function () {
-        if (!pat.value) return;
-        pat.value = '';
-        pat.dispatchEvent(new Event('input', { bubbles: true }));
-        setTimeout(sync, 0);
-      });
-    })();
-  </script>
 </body>
 </html>

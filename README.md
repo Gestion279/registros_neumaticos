@@ -1,7 +1,8 @@
 # Historial de cambios de neumáticos
 
 App web estática (HTML + JS) para cargar los PDF de "Reporte cambio de neumáticos",
-ver el historial por patente y consultar el PDF original de cada registro.
+ver la lista de vehículos con sus datos de la póliza, el historial de cada patente y el PDF
+original de cada registro. Usa la misma paleta y tipografía que la app de pólizas de flota.
 Se puede instalar en la computadora y en el celular (PWA).
 
 - **Base de datos y archivos:** Supabase (Postgres + Storage)
@@ -13,7 +14,7 @@ Se puede instalar en la computadora y en el celular (PWA).
 
 ```
 index.html            Pantalla principal
-css/styles.css        Estilos (PC, tablet y celular)
+css/styles.css        Estilos (PC, tablet y celular; modo claro y oscuro)
 js/config.js          URL y anon key de Supabase  <-- editar
 js/app.js             Lógica (lectura de PDF, historial, filtros, controles)
 js/pwa.js             Instalación de la app
@@ -21,6 +22,7 @@ sw.js                 Service worker (permite instalar y abrir sin conexión)
 manifest.webmanifest  Nombre, colores e íconos de la app instalada
 icons/                Íconos
 supabase/schema.sql   Tablas, vista, validaciones, políticas y bucket  <-- ejecutar
+supabase/vehiculos_poliza.sql  Datos de la póliza para la lista      <-- ejecutar
 vercel.json           Configuración de Vercel
 ```
 
@@ -29,6 +31,7 @@ vercel.json           Configuración de Vercel
 ### 1. Supabase
 1. Crear un proyecto en https://supabase.com
 2. **SQL Editor > New query**, pegar el contenido de `supabase/schema.sql` y ejecutar.
+   Después hacer lo mismo con `supabase/vehiculos_poliza.sql` (datos de la póliza).
 3. **Project Settings > API**: copiar *Project URL* y *anon public key*.
 
 ### 2. Configurar la app
@@ -51,17 +54,36 @@ git push -u origin main
 
 ## Uso
 
-1. **↑ Registros** (arriba a la derecha): elegir uno o varios PDF, o arrastrarlos a
+1. **Cargar PDF** (arriba a la derecha): elegir uno o varios PDF, o arrastrarlos a
    cualquier parte de la página. La app lee los datos, los muestra para revisarlos y,
    al confirmar, guarda el registro y el PDF.
-2. Buscar la patente (completa o parcial) y, si hace falta, ordenar o filtrar por fecha,
-   neumático, zona o chofer.
-3. Elegir una patente: aparece su historial (el cambio más reciente primero) con el
-   kilometraje y los km recorridos desde el cambio anterior. En PC se ve como tabla;
-   en celular, como fichas con **Ver detalle**.
-4. **Ver PDF** abre el original en una pestaña nueva; **Descargar** lo guarda.
-   La dirección incluye la patente (`/#AB500CM`), así que se puede compartir o recargar
-   sin perder la consulta.
+2. **Vehículos** muestra una fila por patente con cambios registrados: certificado,
+   marca completa, año y zona (de la póliza), fecha y antigüedad del último cambio
+   (barra verde, amarilla o roja), km, neumático, cantidad de cambios y estado.
+   - Los indicadores de arriba filtran la lista (para revisar, más de 12 meses sin cambio).
+   - Se puede buscar por patente, marca o zona, filtrar por estado y zona, y ordenar
+     tocando el encabezado de cada columna.
+   - **Exportar a Excel** descarga la lista visible, o solo los vehículos tildados.
+3. Tocando una fila se abre la **ficha del vehículo**: datos de la póliza, chofer y
+   neumático actuales, km y días promedio entre cambios, gráfico de kilometraje y el
+   historial (tabla en PC, fichas en celular). La dirección incluye la patente
+   (`/#AB500CM`), así que se puede compartir o recargar sin perder la consulta.
+4. **Para revisar** lista todos los registros con observaciones de toda la flota.
+5. **Ver PDF** abre el original en una pestaña nueva; **Descargar** lo guarda.
+
+### Datos de la póliza
+
+La app de pólizas usa el mismo proyecto de Supabase. La función
+`vehiculos_poliza_con_cambios()` (en `supabase/vehiculos_poliza.sql`) devuelve, para cada
+patente **que tenga al menos un cambio registrado**, el certificado, la marca completa y el
+año del último período de la póliza en que figura, y la zona de la base de zonas.
+
+- Las patentes de la póliza sin cambios registrados no aparecen.
+- Las patentes con cambios que no figuran en la póliza aparecen como «Sin datos de póliza».
+- Las patentes se cruzan sin espacios ni guiones y en mayúsculas.
+- La función no expone valores, premios ni centros de costo; las tablas de pólizas siguen
+  accesibles solo con usuario logueado.
+- Si la función todavía no se creó, la app funciona igual y avisa que no hay datos de póliza.
 
 ### Controles de consistencia
 La app nunca modifica los registros: solo los señala.
