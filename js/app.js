@@ -1,7 +1,7 @@
 /* =====================================================================
    Historial de cambios de neumáticos
    - Acceso libre: cualquiera con el link puede ver y cargar
-   - Lista de vehículos con los datos de la póliza (marca, año, certificado
+   - Lista de vehículos con los datos de la póliza (descripción del vehículo
      y zona), solo para patentes con cambios registrados
    - Ficha por vehículo con gráfico de kilometraje e historial
    - Lectura de PDF en el navegador (pdf.js) y controles de consistencia
@@ -27,7 +27,7 @@
 
   const state = {
     registros: [],          // filas tal como vienen de la base (no se modifican)
-    poliza: new Map(),      // dominio -> { certificado, marca, anio, zona, periodo_id, vigencia_hasta }
+    poliza: new Map(),      // dominio -> { marca, anio, zona, periodo_id, vigencia_hasta }
     polizaError: null,      // la función de póliza todavía no existe o falló
     vehiculos: new Map(),   // dominio -> { dominio, cambios[], ultimo, ultimoConKm, aRevisar, pol, dias, ... }
     cargando: true,
@@ -36,7 +36,7 @@
     q: "",
     fEstado: "",
     fZona: "",
-    sort: { k: "cert", dir: 1 },
+    sort: { k: "patente", dir: 1 },
     marcados: new Set(),    // patentes tildadas para exportar
     sel: null,              // patente abierta en la ficha
     asc: false,             // ficha: más reciente primero
@@ -324,7 +324,7 @@
       if (state.fZona === "__none" ? v.pol?.zona : state.fZona && v.pol?.zona !== state.fZona) return false;
       if (!q) return true;
       if (qDom && v.dominio.includes(qDom)) return true;
-      const txt = [v.pol?.marca, v.pol?.anio, v.pol?.zona, v.pol?.certificado].filter(Boolean).join(" ").toLowerCase();
+      const txt = [v.pol?.marca, v.pol?.anio, v.pol?.zona].filter(Boolean).join(" ").toLowerCase();
       return txt.includes(q);
     });
 
@@ -335,7 +335,6 @@
     const num = (a, b) => a - b;
     const txt = (a, b) => String(a).localeCompare(String(b), "es", { numeric: true });
     const clave = {
-      cert: (v) => v.pol?.certificado ?? null,
       patente: (v) => v.dominio,
       marca: (v) => v.pol?.marca || null,
       zona: (v) => v.pol?.zona || null,
@@ -343,7 +342,7 @@
       km: (v) => (v.ultimoConKm ? v.ultimoConKm.km : null),
       cambios: (v) => v.cambios.length,
     }[k];
-    const tipo = ["cert", "ultimo", "km", "cambios"].includes(k) ? num : txt;
+    const tipo = ["ultimo", "km", "cambios"].includes(k) ? num : txt;
     return lista.sort((a, b) => cmpNulos(clave(a), clave(b), tipo) || porPat(a, b));
   }
 
@@ -370,7 +369,6 @@
     const cls = [marcado ? "sel" : "", v.aRevisar ? "revisar" : ""].filter(Boolean).join(" ");
     return `<tr data-dominio="${esc(v.dominio)}" class="${cls}">
       <td class="chk"><input type="checkbox" class="marca-chk" ${marcado ? "checked" : ""} aria-label="Seleccionar ${esc(v.dominio)}"></td>
-      <td class="cert">${p?.certificado ?? '<span class="nd">—</span>'}</td>
       <td class="pat">${plate(v.dominio)}</td>
       <td class="marca">${p?.marca ? esc(p.marca) : '<span class="nd">Sin datos de póliza</span>'}${p?.anio ? `<small>${esc(p.anio)}</small>` : ""}</td>
       <td class="zn">${p ? zonaHtml(p.zona) : '<span class="zona none">—</span>'}</td>
@@ -415,26 +413,26 @@
 
     if (!configurado) {
       tf.innerHTML = "";
-      tb.innerHTML = vacio(11, "Falta configurar <code>js/config.js</code> con la URL y la anon key de Supabase.");
+      tb.innerHTML = vacio(10, "Falta configurar <code>js/config.js</code> con la URL y la anon key de Supabase.");
       return;
     }
     if (state.cargando) {
       tf.innerHTML = "";
       $("lista-n").textContent = "Cargando…";
-      tb.innerHTML = Array.from({ length: 6 }, () => `<tr class="esq" aria-hidden="true"><td colspan="11"><span></span></td></tr>`).join("");
+      tb.innerHTML = Array.from({ length: 6 }, () => `<tr class="esq" aria-hidden="true"><td colspan="10"><span></span></td></tr>`).join("");
       return;
     }
     if (state.errorCarga) {
       tf.innerHTML = "";
       $("lista-n").textContent = "";
-      tb.innerHTML = vacio(11, `No se pudieron cargar los registros. <span class="muted">${esc(state.errorCarga)}</span>`,
+      tb.innerHTML = vacio(10, `No se pudieron cargar los registros. <span class="muted">${esc(state.errorCarga)}</span>`,
         `<div><button class="btn" type="button" data-accion="reintentar">${ico("refresh")}Reintentar</button></div>`, true);
       return;
     }
     if (!state.vehiculos.size) {
       tf.innerHTML = "";
       $("lista-n").textContent = "";
-      tb.innerHTML = vacio(11, "Todavía no hay registros. Usá <strong>Cargar PDF</strong> para cargar el primero.");
+      tb.innerHTML = vacio(10, "Todavía no hay registros. Usá <strong>Cargar PDF</strong> para cargar el primero.");
       return;
     }
 
@@ -446,13 +444,13 @@
 
     if (!lista.length) {
       tf.innerHTML = "";
-      tb.innerHTML = vacio(11, "Ningún vehículo coincide con la búsqueda o los filtros.",
+      tb.innerHTML = vacio(10, "Ningún vehículo coincide con la búsqueda o los filtros.",
         `<div><button class="btn" type="button" data-accion="limpiar-filtros">Limpiar filtros</button></div>`);
       return;
     }
     tb.innerHTML = lista.map(filaVehiculo).join("");
-    tf.innerHTML = `<tr><td colspan="6">${lista.length === total ? "Total" : "Subtotal"} ${plural(lista.length, "vehículo", "vehículos")}</td>
-      <td colspan="5" class="fuente">Marca, año, certificado y zona: póliza${state.polizaError ? " (no disponible)" : ""} · Solo vehículos con cambios registrados</td></tr>`;
+    tf.innerHTML = `<tr><td colspan="5">${lista.length === total ? "Total" : "Subtotal"} ${plural(lista.length, "vehículo", "vehículos")}</td>
+      <td colspan="5" class="fuente">Vehículo y zona: póliza${state.polizaError ? " (no disponible)" : ""} · Solo vehículos con cambios registrados</td></tr>`;
   }
 
   function renderBulk() {
@@ -483,12 +481,13 @@
     if (state.vista !== "revisar") return;
 
     $("rev-n").textContent = items.length ? plural(items.length, "registro", "registros") : "";
-    if (state.cargando) return ($("tb-rev").innerHTML = vacio(6, "Cargando…"));
-    if (!items.length) return ($("tb-rev").innerHTML = vacio(6, "No hay registros para revisar."));
+    if (state.cargando) return ($("tb-rev").innerHTML = vacio(7, "Cargando…"));
+    if (!items.length) return ($("tb-rev").innerHTML = vacio(7, "No hay registros para revisar."));
     $("tb-rev").innerHTML = items
       .map(({ v, c, ps }) => `<tr data-dominio="${esc(v.dominio)}">
         <td class="pat">${plate(v.dominio)}</td>
         <td class="marca">${v.pol?.marca ? esc(v.pol.marca) : '<span class="nd">Sin datos de póliza</span>'}${v.pol?.anio ? `<small>${esc(v.pol.anio)}</small>` : ""}</td>
+        <td class="zn">${v.pol ? zonaHtml(v.pol.zona) : '<span class="zona none">—</span>'}</td>
         <td class="fecha">${esc(fmtFecha(c.r.fecha_cambio)) || '<span class="nd">Sin fecha</span>'}</td>
         <td class="num km">${c.km != null ? fmtNum(c.km) : '<span class="nd">Sin dato</span>'}</td>
         <td>${tagsHtml(ps)}<small>${esc(ps[0].det)}</small></td>
@@ -662,7 +661,7 @@
       : `<span class="aviso-poliza">${state.polizaError ? "Datos de póliza no disponibles" : "Esta patente no figura en la póliza"}</span>`;
 
     const datos = [];
-    if (p) datos.push(["Zona", zonaHtml(p.zona)], ["Certificado", p.certificado ?? "—"]);
+    if (p) datos.push(["Zona", zonaHtml(p.zona)]);
     datos.push(
       ["Chofer (último reporte)", esc(u?.chofer) || '<span class="nd">—</span>'],
       ["Asignación", esc(u?.asignacion) || '<span class="nd">—</span>'],
@@ -773,11 +772,11 @@
       : vehiculosVisibles();
     const lista = state.marcados.size && !base.length ? [...state.marcados].map((d) => state.vehiculos.get(d)).filter(Boolean) : base;
     if (!lista.length) return toast("No hay vehículos para exportar", true);
-    const cab = ["Certificado", "Patente", "Marca completa", "Año", "Zona", "Último cambio", "Días desde el último cambio",
+    const cab = ["Patente", "Vehículo", "Año", "Zona", "Último cambio", "Días desde el último cambio",
       "Km en el último cambio", "Neumático", "Medida", "Cambios", "Km promedio entre cambios", "Registros para revisar"];
     const filas = lista.map((v) => {
       const u = v.ultimo?.r;
-      return [v.pol?.certificado ?? "", v.dominio, v.pol?.marca ?? "", v.pol?.anio ?? "", v.pol?.zona ?? "",
+      return [v.dominio, v.pol?.marca ?? "", v.pol?.anio ?? "", v.pol?.zona ?? "",
         u ? fmtFecha(u.fecha_cambio) : "", v.dias ?? "", v.ultimoConKm?.km ?? "", u?.marca_neumatico ?? "", u?.medida ?? "",
         v.cambios.length, v.kmProm ?? "", v.aRevisar];
     });
