@@ -23,6 +23,7 @@ manifest.webmanifest  Nombre, colores e íconos de la app instalada
 icons/                Íconos
 supabase/schema.sql   Tablas, vista, validaciones, políticas y bucket  <-- ejecutar
 supabase/vehiculos_poliza.sql  Datos de la póliza para la lista      <-- ejecutar
+supabase/diagnostico_poliza.sql  Diagnóstico si no aparecen los datos de la póliza
 vercel.json           Configuración de Vercel
 ```
 
@@ -68,8 +69,7 @@ git push -u origin main
    neumático actuales, km y días promedio entre cambios, gráfico de kilometraje y el
    historial (tabla en PC, fichas en celular). La dirección incluye la patente
    (`/#AB500CM`), así que se puede compartir o recargar sin perder la consulta.
-4. **Para revisar** lista todos los registros con observaciones de toda la flota.
-5. **Ver PDF** abre el original en una pestaña nueva; **Descargar** lo guarda.
+4. **Ver PDF** abre el original en una pestaña nueva; **Descargar** lo guarda.
 
 ### Datos de la póliza
 
@@ -83,7 +83,10 @@ año del último período de la póliza en que figura, y la zona de la base de z
 - Las patentes se cruzan sin espacios ni guiones y en mayúsculas.
 - La función no expone valores, premios ni centros de costo; las tablas de pólizas siguen
   accesibles solo con usuario logueado.
-- Si la función todavía no se creó, la app funciona igual y avisa que no hay datos de póliza.
+- Si faltan los datos de la póliza, la app lo indica arriba de la lista con la causa
+  probable. Para ver el detalle, ejecutar `supabase/diagnostico_poliza.sql` en el SQL Editor
+  (solo lee; muestra cuántas patentes coinciden, si la función existe, cuántas filas devuelve
+  y ejemplos de patentes que no coinciden).
 
 ### Controles de consistencia
 La app nunca modifica los registros: solo los señala.

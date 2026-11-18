@@ -47,10 +47,6 @@
     <div>
       <h1 class="brand"><img src="/icons/icon-192.png" alt="" width="40" height="40">Historial de neumáticos</h1>
       <p class="sub">Vehículos de la póliza con cambios de neumáticos registrados.</p>
-      <div class="tabs" role="tablist" aria-label="Secciones">
-        <button role="tab" id="t-lista" aria-selected="true" aria-controls="vista-lista" type="button">Vehículos</button>
-        <button role="tab" id="t-revisar" aria-selected="false" aria-controls="vista-revisar" type="button">Para revisar <span class="cnt" id="t-cnt" hidden></span></button>
-      </div>
     </div>
     <div class="hright">
       <button id="btn-instalar" class="btn" type="button" hidden>
@@ -71,7 +67,8 @@
 
   <main>
     <!-- ============ VEHÍCULOS ============ -->
-    <section id="vista-lista" role="tabpanel" aria-labelledby="t-lista">
+    <section id="vista-lista" aria-label="Vehículos">
+      <p id="aviso-poliza" class="aviso-banda" role="status" hidden></p>
       <div class="kpis" aria-label="Resumen">
         <button type="button" class="kpi" data-estado="">
           <span class="kpi-lbl">Vehículos</span><strong class="kpi-val" id="k-total">…</strong>
@@ -137,28 +134,6 @@
             </thead>
             <tbody id="tb"></tbody>
             <tfoot id="tf"></tfoot>
-          </table>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============ PARA REVISAR ============ -->
-    <section id="vista-revisar" role="tabpanel" aria-labelledby="t-revisar" hidden>
-      <div class="panel">
-        <div class="toolbar">
-          <h2>Registros para revisar</h2>
-          <span class="count" id="rev-n"></span>
-        </div>
-        <p class="nota">La app nunca modifica los registros: solo los señala. Abrí el PDF para comparar y, si hace falta, volvé a cargarlo con el dato corregido.</p>
-        <div class="tablewrap">
-          <table class="vtable rtable">
-            <caption class="sr-only">Registros con observaciones de consistencia</caption>
-            <thead>
-              <tr>
-                <th>Patente</th><th>Vehículo</th><th>Zona</th><th>Fecha del cambio</th><th class="num">Km</th><th>Motivo</th><th><span class="sr-only">Acciones</span></th>
-              </tr>
-            </thead>
-            <tbody id="tb-rev"></tbody>
           </table>
         </div>
       </div>
