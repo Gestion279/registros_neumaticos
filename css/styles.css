@@ -172,11 +172,10 @@ table { border-collapse: collapse; width: 100%; }
 .vtable tbody tr[data-dominio] { cursor: pointer; }
 .vtable tfoot td { font-weight: 700; border-top: 2px solid var(--title); border-bottom: 0; padding: 9px 14px; }
 .vtable tfoot td.fuente { font-weight: 400; color: var(--muted); }
-#tabla-veh { min-width: 1120px; }
-.rtable { min-width: 760px; }
+#tabla-veh { min-width: 1080px; }
+.rtable { min-width: 860px; }
 .htable { min-width: 1000px; }
 td.chk, th.chk { width: 36px; }
-td.cert { color: var(--muted); width: 44px; }
 td.marca { min-width: 170px; }
 td small, td .sub { display: block; color: var(--muted); font-size: 12px; }
 .htable td small { white-space: nowrap; }
@@ -371,7 +370,7 @@ dialog:not([open]) { display: none !important; }
     grid-template-areas: "pat marca marca" "pat zn zn" "pat ult ult" "pat km est";
   }
   #tabla-veh tbody td, .rtable tbody td { display: block; padding: 0; border: 0; }
-  #tabla-veh td.chk, #tabla-veh td.cert { display: none; }
+  #tabla-veh td.chk { display: none; }
   #tabla-veh td.pat { grid-area: pat; align-self: start; }
   #tabla-veh td.marca { grid-area: marca; min-width: 0; font-weight: 600; }
   #tabla-veh td.marca small { display: inline; margin-left: 4px; font-weight: 400; }
@@ -386,7 +385,8 @@ dialog:not([open]) { display: none !important; }
   #tabla-veh tbody tr.vacio td, .rtable tbody tr.vacio td { padding: 20px 4px; }
   #tabla-veh tbody tr.esq { display: block; }
   #tabla-veh tfoot td.fuente { display: none; }
-  .rtable td.pat { grid-row: 1 / span 3; }
+  .rtable td.pat { grid-row: 1 / span 4; align-self: start; }
+  .rtable td.zn { grid-column: 2 / 4; }
   .rtable td.acc { grid-column: 2 / 4; justify-self: stretch; }
   .rtable td.acc .pdf-acc { justify-content: flex-start; }
   .rtable td.num { text-align: left; }
