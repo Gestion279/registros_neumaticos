@@ -114,6 +114,14 @@ header.top {
 .aviso-banda.info { background: var(--info-bg); color: var(--info); border-color: color-mix(in srgb, var(--info) 30%, transparent); }
 .aviso-banda.error { background: var(--warn-bg); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
 .aviso-banda .linkbtn { color: inherit; padding: 0 2px; }
+.aviso-banda { display: grid; gap: 6px; }
+.aviso-banda .btn { margin-left: 6px; vertical-align: middle; }
+.fuente-pdf {
+  display: inline-block; margin-left: 6px; padding: 0 4px; vertical-align: 1px;
+  font: 600 10px/1.5 var(--sans); letter-spacing: .5px; color: var(--muted);
+  border: 1px solid var(--line); border-radius: 4px; background: var(--surface); cursor: help;
+}
+.ficha-marca .fuente-pdf { vertical-align: 4px; }
 
 main > section { display: grid; gap: 14px; }
 
